@@ -34,6 +34,7 @@ document.getElementById('stageTable').addEventListener('click', e => {
             fillForm();
             initDraggables();
             drawCanvas();
+            if(typeof syncConfigJson === 'function') syncConfigJson();
             showEditor();
         });
 });

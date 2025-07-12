@@ -33,8 +33,13 @@
         <button id="addStaticObstacle" class="btn btn-secondary">固定障害物追加</button>
         <button id="addFoodGen" class="btn btn-secondary">食材生成追加</button>
         <button id="addTransfer" class="btn btn-secondary">転送オブジェクト追加</button>
+        <button id="deleteObject" class="btn btn-danger">選択オブジェクト削除</button>
     </div>
     <canvas id="stageCanvas" width="800" height="600" class="mb-3"></canvas>
+    <div class="mb-3">
+        <label class="form-label">JSON:</label>
+        <textarea id="configJson" class="form-control" rows="8"></textarea>
+    </div>
     <button id="saveStage" class="btn btn-primary">保存</button>
     <label class="ms-2">適用先ルーム: <input type="text" id="applyRoom" value="room1" class="form-control d-inline-block w-auto"></label>
     <button id="applyStage" class="btn btn-success ms-2">適用</button>

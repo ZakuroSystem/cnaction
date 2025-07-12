@@ -1,6 +1,7 @@
 let config = {};
 let draggables = [];
 let dragging = null;
+let selected = null;
 let dx = 0, dy = 0;
 const socket = io();
 const canvas = document.getElementById('stageCanvas');
@@ -17,6 +18,7 @@ function loadDefaultConfig() {
             fillForm();
             initDraggables();
             drawCanvas();
+            syncConfigJson();
         });
 }
 
@@ -40,6 +42,24 @@ function readForm() {
         if(d.type === 'transferSrc') Object.assign(config.transferObjects[d.idx].sourceZone, {x:d.x, y:d.y});
         if(d.type === 'transferDst') Object.assign(config.transferObjects[d.idx].destination, {x:d.x, y:d.y});
     });
+    syncConfigJson();
+}
+
+function syncConfigJson(toTextarea=true){
+    const ta = document.getElementById('configJson');
+    if(!ta) return;
+    if(toTextarea){
+        ta.value = JSON.stringify(config, null, 2);
+    }else{
+        try{
+            config = JSON.parse(ta.value);
+            fillForm();
+            initDraggables();
+            drawCanvas();
+        }catch(e){
+            alert('JSON parse error: '+e.message);
+        }
+    }
 }
 
 function initDraggables() {
@@ -70,6 +90,7 @@ function drawCanvas() {
             transferDst: 'magenta'
         };
         ctx.strokeStyle = colors[d.type] || 'black';
+        ctx.lineWidth = (d === selected) ? 3 : 1;
         ctx.strokeRect(d.x-d.width/2, d.y-d.height/2, d.width, d.height);
         ctx.fillStyle = 'black';
         const labels = {
@@ -83,6 +104,7 @@ function drawCanvas() {
         };
         ctx.fillText(labels[d.type] || '', d.x-10, d.y);
     });
+    ctx.lineWidth = 1;
 }
 
 canvas.addEventListener('mousedown', e => {
@@ -90,7 +112,9 @@ canvas.addEventListener('mousedown', e => {
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     dragging = draggables.find(d => mx >= d.x - d.width/2 && mx <= d.x + d.width/2 && my >= d.y - d.height/2 && my <= d.y + d.height/2);
+    selected = dragging;
     if(dragging){ dx = mx - dragging.x; dy = my - dragging.y; }
+    drawCanvas();
 });
 
 canvas.addEventListener('mousemove', e => {
@@ -111,33 +135,42 @@ canvas.addEventListener('mouseup', () => {
     if(dragging.type === 'transferSrc') Object.assign(config.transferObjects[dragging.idx].sourceZone, {x:dragging.x, y:dragging.y});
     if(dragging.type === 'transferDst') Object.assign(config.transferObjects[dragging.idx].destination, {x:dragging.x, y:dragging.y});
     dragging = null;
+    syncConfigJson();
 });
 
 document.getElementById('addActionZone').onclick = () => {
     config.actionZones.push({x:100,y:100,width:150,height:150,action:'cut',display:'作業中',occupied:false});
     initDraggables();
+    selected = null;
     drawCanvas();
+    syncConfigJson();
 };
 
 document.getElementById('addMovingObstacle').onclick = () => {
     if(!config.movingObstacles) config.movingObstacles = [];
     config.movingObstacles.push({x:200,y:200,width:96,height:96});
     initDraggables();
+    selected = null;
     drawCanvas();
+    syncConfigJson();
 };
 
 document.getElementById('addStaticObstacle').onclick = () => {
     if(!config.staticObstacles) config.staticObstacles = [];
     config.staticObstacles.push({x:300,y:200,width:96,height:96});
     initDraggables();
+    selected = null;
     drawCanvas();
+    syncConfigJson();
 };
 
 document.getElementById('addFoodGen').onclick = () => {
     if(!config.foodGenerators) config.foodGenerators = [];
     config.foodGenerators.push({x:400,y:200,width:96,height:96,nextFood:'ingredient_tomato'});
     initDraggables();
+    selected = null;
     drawCanvas();
+    syncConfigJson();
 };
 
 document.getElementById('addTransfer').onclick = () => {
@@ -147,7 +180,39 @@ document.getElementById('addTransfer').onclick = () => {
         destination:{x:600,y:200,width:50,height:50}
     });
     initDraggables();
+    selected = null;
     drawCanvas();
+    syncConfigJson();
+};
+
+document.getElementById('deleteObject').onclick = () => {
+    if(!selected) return;
+    const idx = selected.idx;
+    switch(selected.type){
+        case 'action':
+            config.actionZones.splice(idx,1);
+            break;
+        case 'delivery':
+            config.deliveryZone = null;
+            break;
+        case 'moving':
+            config.movingObstacles.splice(idx,1);
+            break;
+        case 'static':
+            config.staticObstacles.splice(idx,1);
+            break;
+        case 'foodGen':
+            config.foodGenerators.splice(idx,1);
+            break;
+        case 'transferSrc':
+        case 'transferDst':
+            config.transferObjects.splice(idx,1);
+            break;
+    }
+    selected = null;
+    initDraggables();
+    drawCanvas();
+    syncConfigJson();
 };
 
 document.getElementById('saveStage').onclick = () => {
@@ -178,3 +243,8 @@ document.getElementById('applyStage').onclick = () => {
     socket.emit('update_config', { room, config });
     alert('適用しました');
 };
+
+const configJsonElem = document.getElementById('configJson');
+if(configJsonElem){
+    configJsonElem.addEventListener('change', () => syncConfigJson(false));
+}
