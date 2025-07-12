@@ -25,7 +25,13 @@
         ペナルティ <input type="number" id="wrongPenalty">
     </fieldset>
     <button id="addActionZone">アクションゾーン追加</button>
+    <button id="addMovingObstacle">動く障害物追加</button>
+    <button id="addStaticObstacle">固定障害物追加</button>
+    <button id="addFoodGen">食材生成追加</button>
+    <button id="addTransfer">転送オブジェクト追加</button>
     <canvas id="stageCanvas" width="800" height="600"></canvas>
+    <h3>詳細設定(JSON)</h3>
+    <textarea id="configJson" style="width:100%;height:200px;"></textarea>
     <button id="saveStage">保存</button>
     <label>適用先ルーム: <input type="text" id="applyRoom" value="room1"></label>
     <button id="applyStage">適用</button>

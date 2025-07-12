@@ -8,6 +8,7 @@ const ctx = canvas.getContext('2d');
 const bg = new Image();
 bg.src = '/static/assets/background/kitchen.png';
 bg.onload = drawCanvas;
+const cfgText = document.getElementById('configJson');
 
 function loadDefaultConfig() {
     fetch('/api/default_config')
@@ -17,6 +18,7 @@ function loadDefaultConfig() {
             fillForm();
             initDraggables();
             drawCanvas();
+            syncConfigJson();
         });
 }
 
@@ -24,29 +26,76 @@ function fillForm() {
     document.getElementById('gameTime').value = config.gameTime;
     document.getElementById('orderTimeLimit').value = config.orderTimeLimit;
     document.getElementById('wrongPenalty').value = config.wrongOrderPenalty;
+    syncConfigJson();
 }
 
 function readForm() {
+    try {
+        const parsed = JSON.parse(cfgText.value);
+        config = parsed;
+    } catch(e) {
+        alert('JSON parse error');
+    }
     config.gameTime = +document.getElementById('gameTime').value;
     config.orderTimeLimit = +document.getElementById('orderTimeLimit').value;
     config.wrongOrderPenalty = +document.getElementById('wrongPenalty').value;
+    // update from draggables
+    draggables.forEach(d => {
+        if(d.type === 'action') Object.assign(config.actionZones[d.idx], {x:d.x, y:d.y});
+        if(d.type === 'delivery') Object.assign(config.deliveryZone, {x:d.x, y:d.y});
+        if(d.type === 'moving') Object.assign(config.movingObstacles[d.idx], {x:d.x, y:d.y});
+        if(d.type === 'static') Object.assign(config.staticObstacles[d.idx], {x:d.x, y:d.y});
+        if(d.type === 'foodGen') Object.assign(config.foodGenerators[d.idx], {x:d.x, y:d.y});
+        if(d.type === 'transferSrc') Object.assign(config.transferObjects[d.idx].sourceZone, {x:d.x, y:d.y});
+        if(d.type === 'transferDst') Object.assign(config.transferObjects[d.idx].destination, {x:d.x, y:d.y});
+    });
+    syncConfigJson();
   }
+
+function syncConfigJson() {
+    cfgText.value = JSON.stringify(config, null, 2);
+}
 
 function initDraggables() {
     draggables = [];
     config.actionZones.forEach((z, i) => draggables.push({type:'action', idx:i, ...z}));
     if(config.deliveryZone)
         draggables.push({type:'delivery', ...config.deliveryZone});
+    (config.movingObstacles || []).forEach((z,i) => draggables.push({type:'moving', idx:i, ...z}));
+    (config.staticObstacles || []).forEach((z,i) => draggables.push({type:'static', idx:i, ...z}));
+    (config.foodGenerators || []).forEach((z,i) => draggables.push({type:'foodGen', idx:i, ...z}));
+    (config.transferObjects || []).forEach((tr,i) => {
+        draggables.push({type:'transferSrc', idx:i, ...tr.sourceZone});
+        draggables.push({type:'transferDst', idx:i, ...tr.destination});
+    });
 }
 
 function drawCanvas() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
     if(bg.complete) ctx.drawImage(bg,0,0,canvas.width,canvas.height);
     draggables.forEach(d => {
-        ctx.strokeStyle = d.type === 'action' ? 'blue' : 'red';
+        const colors = {
+            action: 'blue',
+            delivery: 'red',
+            moving: 'green',
+            static: 'gray',
+            foodGen: 'orange',
+            transferSrc: 'purple',
+            transferDst: 'magenta'
+        };
+        ctx.strokeStyle = colors[d.type] || 'black';
         ctx.strokeRect(d.x-d.width/2, d.y-d.height/2, d.width, d.height);
         ctx.fillStyle = 'black';
-        ctx.fillText(d.type==='action'?d.action:'D', d.x-10, d.y);
+        const labels = {
+            action: d.action,
+            delivery: 'D',
+            moving: 'M',
+            static: 'S',
+            foodGen: 'F',
+            transferSrc: 'S',
+            transferDst: 'T'
+        };
+        ctx.fillText(labels[d.type] || '', d.x-10, d.y);
     });
 }
 
@@ -70,13 +119,55 @@ canvas.addEventListener('mouseup', () => {
     if(!dragging) return;
     if(dragging.type === 'action') Object.assign(config.actionZones[dragging.idx], {x:dragging.x, y:dragging.y});
     if(dragging.type === 'delivery') Object.assign(config.deliveryZone, {x:dragging.x, y:dragging.y});
+    if(dragging.type === 'moving') Object.assign(config.movingObstacles[dragging.idx], {x:dragging.x, y:dragging.y});
+    if(dragging.type === 'static') Object.assign(config.staticObstacles[dragging.idx], {x:dragging.x, y:dragging.y});
+    if(dragging.type === 'foodGen') Object.assign(config.foodGenerators[dragging.idx], {x:dragging.x, y:dragging.y});
+    if(dragging.type === 'transferSrc') Object.assign(config.transferObjects[dragging.idx].sourceZone, {x:dragging.x, y:dragging.y});
+    if(dragging.type === 'transferDst') Object.assign(config.transferObjects[dragging.idx].destination, {x:dragging.x, y:dragging.y});
     dragging = null;
+    syncConfigJson();
 });
 
 document.getElementById('addActionZone').onclick = () => {
     config.actionZones.push({x:100,y:100,width:150,height:150,action:'cut',display:'作業中',occupied:false});
     initDraggables();
     drawCanvas();
+    syncConfigJson();
+};
+
+document.getElementById('addMovingObstacle').onclick = () => {
+    if(!config.movingObstacles) config.movingObstacles = [];
+    config.movingObstacles.push({x:200,y:200,width:96,height:96});
+    initDraggables();
+    drawCanvas();
+    syncConfigJson();
+};
+
+document.getElementById('addStaticObstacle').onclick = () => {
+    if(!config.staticObstacles) config.staticObstacles = [];
+    config.staticObstacles.push({x:300,y:200,width:96,height:96});
+    initDraggables();
+    drawCanvas();
+    syncConfigJson();
+};
+
+document.getElementById('addFoodGen').onclick = () => {
+    if(!config.foodGenerators) config.foodGenerators = [];
+    config.foodGenerators.push({x:400,y:200,width:96,height:96,nextFood:'ingredient_tomato'});
+    initDraggables();
+    drawCanvas();
+    syncConfigJson();
+};
+
+document.getElementById('addTransfer').onclick = () => {
+    if(!config.transferObjects) config.transferObjects = [];
+    config.transferObjects.push({
+        sourceZone:{x:500,y:200,width:50,height:50},
+        destination:{x:600,y:200,width:50,height:50}
+    });
+    initDraggables();
+    drawCanvas();
+    syncConfigJson();
 };
 
 document.getElementById('saveStage').onclick = () => {
