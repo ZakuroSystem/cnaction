@@ -4,7 +4,7 @@ import random
 import json
 import itertools
 import shutil
-import uuid
+import datetime
 from io import BytesIO
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 from flask import (
     Flask, Blueprint, render_template, request, jsonify, send_file
 )
-from flask_socketio import SocketIO, join_room, emit
+from flask_socketio import SocketIO, join_room
 
 # ─────────────────────────────────────────
 # App & SocketIO 初期化
@@ -482,6 +482,7 @@ def on_interact(data):
 # ─────────────────────────────────────────
 # ゲームタイマー起動
 # ─────────────────────────────────────────
+app.register_blueprint(bp)
 socketio.start_background_task(coalesce_broadcast_loop)
 def game_timer_task():
     while True:

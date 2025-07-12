@@ -1,14 +1,14 @@
 @echo off
-REM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+REM „Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ
 REM commit_and_push.bat
-REM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+REM „Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ
 
-REM 1. Ensure weâ€™re in the repo root (adjust path if needed)
+REM 1. Ensure wefre in the repo root (adjust path if needed)
 if not exist ".git" (
     if exist "cnaction\.git" (
         cd cnaction
     ) else (
-        echo [Error] .git ãƒ•ã‚©ãƒ«ãƒ€ãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“ã€‚
+        echo [Error] .git ƒtƒHƒ‹ƒ_‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñB
         pause
         exit /b 1
     )
@@ -17,7 +17,7 @@ if not exist ".git" (
 REM 2. (Optional) Disable CRLF conversion if you prefer to keep LF
 git config core.autocrlf false
 
-REM 3. Remove stray submodule metadata to avoid the â€œno commit checked outâ€ error
+REM 3. Remove stray submodule metadata to avoid the gno commit checked outh error
 if exist ".gitmodules" (
     for /F "tokens=*" %%d in ('git config --file .gitmodules --get-regexp path ^submodule\..*\.path$ ^| awk "{print \$2}"') do (
         git rm --cached "%%d"
@@ -31,10 +31,10 @@ git add .
 
 echo.
 REM 5. Prompt for commit message
-set /p COMMIT_MSG=ã‚³ãƒŸãƒƒãƒˆãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ (Enterã§"Update"): 
+set /p COMMIT_MSG=ƒRƒ~ƒbƒgƒƒbƒZ[ƒW‚ð“ü—Í‚µ‚Ä‚­‚¾‚³‚¢ (Enter‚Å"Update"): 
 if "%COMMIT_MSG%"=="" set COMMIT_MSG=Update
 
-echo ã‚³ãƒŸãƒƒãƒˆãƒ¡ãƒƒã‚»ãƒ¼ã‚¸: [%COMMIT_MSG%]
+echo ƒRƒ~ƒbƒgƒƒbƒZ[ƒW: [%COMMIT_MSG%]
 echo.
 
 REM 6. Commit
@@ -43,12 +43,12 @@ git commit -m "%COMMIT_MSG%"
 REM 7. Ensure origin and branch
 git remote | find "origin" >nul 2>&1
 if errorlevel 1 (
-    echo [Info] origin ãŒæœªè¨­å®šã®ãŸã‚è¿½åŠ ã—ã¾ã™...
+    echo [Info] origin ‚ª–¢Ý’è‚Ì‚½‚ß’Ç‰Á‚µ‚Ü‚·...
     git remote add origin https://github.com/ZakuroSystem/cnaction.git
 )
 git rev-parse --verify main >nul 2>&1
 if errorlevel 1 (
-    echo [Info] main ãƒ–ãƒ©ãƒ³ãƒãŒã‚ã‚Šã¾ã›ã‚“ã€‚ä½œæˆï¼†åˆ‡æ›¿ã—ã¾ã™...
+    echo [Info] main ƒuƒ‰ƒ“ƒ`‚ª‚ ‚è‚Ü‚¹‚ñBì¬•Ø‘Ö‚µ‚Ü‚·...
     git branch -M main
 )
 
@@ -56,5 +56,5 @@ REM 8. Push
 git push origin main
 
 echo.
-echo [Success] ã‚³ãƒŸãƒƒãƒˆï¼†ãƒ—ãƒƒã‚·ãƒ¥ãŒå®Œäº†ã—ã¾ã—ãŸã€‚
+echo [Success] ƒRƒ~ƒbƒg•ƒvƒbƒVƒ…‚ªŠ®—¹‚µ‚Ü‚µ‚½B
 pause >nul

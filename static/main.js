@@ -248,15 +248,16 @@ class GameScene extends Phaser.Scene {
       });
     }
   
-    if (this.serverState.config.choppingZones.length > 0) {
-      let cz = this.serverState.config.choppingZones[0];
-      this.chopZoneImage.setPosition(cz.x, cz.y);
-      this.chopZoneImage.setDisplaySize(cz.width, cz.height);
+    const cutZone = (this.serverState.config.actionZones || []).find(z => z.action === 'cut');
+    if (cutZone) {
+      this.chopZoneImage.setPosition(cutZone.x, cutZone.y);
+      this.chopZoneImage.setDisplaySize(cutZone.width, cutZone.height);
     }
-    if (this.serverState.config.bakingZones.length > 0) {
-      let bz = this.serverState.config.bakingZones[0];
-      this.bakeZoneImage.setPosition(bz.x, bz.y);
-      this.bakeZoneImage.setDisplaySize(bz.width, bz.height);
+
+    const bakeZone = (this.serverState.config.actionZones || []).find(z => z.action === 'bake');
+    if (bakeZone) {
+      this.bakeZoneImage.setPosition(bakeZone.x, bakeZone.y);
+      this.bakeZoneImage.setDisplaySize(bakeZone.width, bakeZone.height);
     }
     if (this.serverState.config.deliveryZone) {
       let dz = this.serverState.config.deliveryZone;
