@@ -3,6 +3,7 @@ import time
 import random
 from dataclasses import asdict
 from typing import Dict
+import json
 
 from flask import (
     Flask, Blueprint, render_template, request, jsonify
@@ -36,6 +37,55 @@ os.makedirs(STAGE_DIR, exist_ok=True)
 
 def _stage_path(key: str) -> str:
     return os.path.join(STAGE_DIR, f'{key}.json')
+
+# ─────────────────────────────────────────
+# ステージ管理 API
+# ─────────────────────────────────────────
+@bp.route('/api/stages', methods=['GET', 'POST'])
+def api_stages():
+    if request.method == 'GET':
+        stages = []
+        for fname in os.listdir(STAGE_DIR):
+            if not fname.endswith('.json'):
+                continue
+            key = os.path.splitext(fname)[0]
+            path = os.path.join(STAGE_DIR, fname)
+            meta = {}
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                meta = data.get('meta', {})
+            except Exception:
+                pass
+            stages.append({
+                'key': key,
+                'name': meta.get('name', key),
+                'updated': int(meta.get('updated', os.path.getmtime(path)))
+            })
+        stages.sort(key=lambda s: s['updated'], reverse=True)
+        return jsonify(stages=stages)
+
+    payload = request.get_json(force=True)
+    key = payload.get('key') or str(int(time.time()))
+    name = payload.get('name', key)
+    config = payload.get('config', {})
+    meta = {'name': name, 'updated': int(time.time())}
+    try:
+        with open(_stage_path(key), 'w', encoding='utf-8') as f:
+            json.dump({'meta': meta, 'config': config}, f, ensure_ascii=False, indent=2)
+        return jsonify(ok=True, key=key)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
+@bp.route('/api/stages/<key>')
+def api_stage_get(key: str):
+    path = _stage_path(key)
+    if not os.path.exists(path):
+        return jsonify(error='not found'), 404
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    return jsonify(data)
 
 # ─────────────────────────────────────────
 # 画像アップロード設定
