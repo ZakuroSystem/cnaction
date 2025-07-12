@@ -2,6 +2,7 @@ let config = {};
 let draggables = [];
 let dragging = null;
 let dx = 0, dy = 0;
+const socket = io();
 const canvas = document.getElementById('stageCanvas');
 const ctx = canvas.getContext('2d');
 const bg = new Image();
@@ -29,7 +30,7 @@ function readForm() {
     config.gameTime = +document.getElementById('gameTime').value;
     config.orderTimeLimit = +document.getElementById('orderTimeLimit').value;
     config.wrongOrderPenalty = +document.getElementById('wrongPenalty').value;
-}
+  }
 
 function initDraggables() {
     draggables = [];
@@ -98,4 +99,11 @@ document.getElementById('saveStage').onclick = () => {
             alert('保存失敗:'+data.msg);
         }
     });
+};
+
+document.getElementById('applyStage').onclick = () => {
+    readForm();
+    const room = document.getElementById('applyRoom').value || 'room1';
+    socket.emit('update_config', { room, config });
+    alert('適用しました');
 };

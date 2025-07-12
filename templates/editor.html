@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Stage Editor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
 </head>
 <body>
 <div id="stage-list">
@@ -26,6 +27,8 @@
     <button id="addActionZone">アクションゾーン追加</button>
     <canvas id="stageCanvas" width="800" height="600"></canvas>
     <button id="saveStage">保存</button>
+    <label>適用先ルーム: <input type="text" id="applyRoom" value="room1"></label>
+    <button id="applyStage">適用</button>
     <button id="backList">戻る</button>
 </div>
 
