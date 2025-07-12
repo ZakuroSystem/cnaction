@@ -8,7 +8,6 @@ const ctx = canvas.getContext('2d');
 const bg = new Image();
 bg.src = '/static/assets/background/kitchen.png';
 bg.onload = drawCanvas;
-const cfgText = document.getElementById('configJson');
 
 function loadDefaultConfig() {
     fetch('/api/default_config')
@@ -18,7 +17,6 @@ function loadDefaultConfig() {
             fillForm();
             initDraggables();
             drawCanvas();
-            syncConfigJson();
         });
 }
 
@@ -26,16 +24,9 @@ function fillForm() {
     document.getElementById('gameTime').value = config.gameTime;
     document.getElementById('orderTimeLimit').value = config.orderTimeLimit;
     document.getElementById('wrongPenalty').value = config.wrongOrderPenalty;
-    syncConfigJson();
 }
 
 function readForm() {
-    try {
-        const parsed = JSON.parse(cfgText.value);
-        config = parsed;
-    } catch(e) {
-        alert('JSON parse error');
-    }
     config.gameTime = +document.getElementById('gameTime').value;
     config.orderTimeLimit = +document.getElementById('orderTimeLimit').value;
     config.wrongOrderPenalty = +document.getElementById('wrongPenalty').value;
@@ -49,11 +40,6 @@ function readForm() {
         if(d.type === 'transferSrc') Object.assign(config.transferObjects[d.idx].sourceZone, {x:d.x, y:d.y});
         if(d.type === 'transferDst') Object.assign(config.transferObjects[d.idx].destination, {x:d.x, y:d.y});
     });
-    syncConfigJson();
-  }
-
-function syncConfigJson() {
-    cfgText.value = JSON.stringify(config, null, 2);
 }
 
 function initDraggables() {
@@ -125,14 +111,12 @@ canvas.addEventListener('mouseup', () => {
     if(dragging.type === 'transferSrc') Object.assign(config.transferObjects[dragging.idx].sourceZone, {x:dragging.x, y:dragging.y});
     if(dragging.type === 'transferDst') Object.assign(config.transferObjects[dragging.idx].destination, {x:dragging.x, y:dragging.y});
     dragging = null;
-    syncConfigJson();
 });
 
 document.getElementById('addActionZone').onclick = () => {
     config.actionZones.push({x:100,y:100,width:150,height:150,action:'cut',display:'作業中',occupied:false});
     initDraggables();
     drawCanvas();
-    syncConfigJson();
 };
 
 document.getElementById('addMovingObstacle').onclick = () => {
@@ -140,7 +124,6 @@ document.getElementById('addMovingObstacle').onclick = () => {
     config.movingObstacles.push({x:200,y:200,width:96,height:96});
     initDraggables();
     drawCanvas();
-    syncConfigJson();
 };
 
 document.getElementById('addStaticObstacle').onclick = () => {
@@ -148,7 +131,6 @@ document.getElementById('addStaticObstacle').onclick = () => {
     config.staticObstacles.push({x:300,y:200,width:96,height:96});
     initDraggables();
     drawCanvas();
-    syncConfigJson();
 };
 
 document.getElementById('addFoodGen').onclick = () => {
@@ -156,7 +138,6 @@ document.getElementById('addFoodGen').onclick = () => {
     config.foodGenerators.push({x:400,y:200,width:96,height:96,nextFood:'ingredient_tomato'});
     initDraggables();
     drawCanvas();
-    syncConfigJson();
 };
 
 document.getElementById('addTransfer').onclick = () => {
@@ -167,7 +148,6 @@ document.getElementById('addTransfer').onclick = () => {
     });
     initDraggables();
     drawCanvas();
-    syncConfigJson();
 };
 
 document.getElementById('saveStage').onclick = () => {
