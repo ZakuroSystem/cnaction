@@ -41,6 +41,11 @@
           document.getElementById("start-overlay").style.display = "none";
           document.getElementById("game-container").style.display = "block";
           document.getElementById("ui").style.display = "block";
+
+          // 画面表示を切り替えたあとにゲームを起動
+          if (window.startGame) {
+            window.startGame();
+          }
         });
     });
   </script>

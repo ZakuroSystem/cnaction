@@ -323,20 +323,23 @@ window.config = {
   scene: [GameScene]
 };
 
-document.addEventListener("DOMContentLoaded", function () {
-  // スタートボタンが押されたらゲームを起動
-  document.getElementById('startButton').addEventListener('click', function () {
-    // 二重起動対策
-    if (window.game) {
-      try {
-        window.game.destroy(true);
-        const container = document.getElementById('game-container');
-        if (container) container.innerHTML = "";
-      } catch (e) {
-        console.error("ゲーム破棄エラー:", e);
-      }
+// ゲーム開始処理を関数化して外部から呼び出せるようにする
+window.startGame = function () {
+  // 二重起動対策
+  if (window.game) {
+    try {
+      window.game.destroy(true);
+      const container = document.getElementById('game-container');
+      if (container) container.innerHTML = "";
+    } catch (e) {
+      console.error("ゲーム破棄エラー:", e);
     }
+  }
 
-    window.game = new Phaser.Game(window.config);
-  });
+  window.game = new Phaser.Game(window.config);
+};
+
+// DOMContentLoaded 後にスタートボタンにハンドラを登録
+document.addEventListener("DOMContentLoaded", function () {
+  document.getElementById('startButton').addEventListener('click', window.startGame);
 });
