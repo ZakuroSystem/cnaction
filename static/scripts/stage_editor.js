@@ -2,6 +2,7 @@ let config = {};
 let draggables = [];
 let dragging = null;
 let selected = null;
+let lastMoved = null;
 let dx = 0, dy = 0;
 const socket = io();
 const canvas = document.getElementById('stageCanvas');
@@ -45,14 +46,21 @@ function readForm() {
     syncConfigJson();
 }
 
-function syncConfigJson(toTextarea=true){
-    const ta = document.getElementById('configJson');
-    if(!ta) return;
-    if(toTextarea){
-        ta.value = JSON.stringify(config, null, 2);
+let editor = null;
+function initEditor(){
+    const container = document.getElementById('configEditor');
+    if(container){
+        editor = new JSONEditor(container, {mode:'tree'});
+    }
+}
+
+function syncConfigJson(toEditor=true){
+    if(!editor) return;
+    if(toEditor){
+        editor.set(config);
     }else{
         try{
-            config = JSON.parse(ta.value);
+            config = editor.get();
             fillForm();
             initDraggables();
             drawCanvas();
@@ -134,6 +142,7 @@ canvas.addEventListener('mouseup', () => {
     if(dragging.type === 'foodGen') Object.assign(config.foodGenerators[dragging.idx], {x:dragging.x, y:dragging.y});
     if(dragging.type === 'transferSrc') Object.assign(config.transferObjects[dragging.idx].sourceZone, {x:dragging.x, y:dragging.y});
     if(dragging.type === 'transferDst') Object.assign(config.transferObjects[dragging.idx].destination, {x:dragging.x, y:dragging.y});
+    lastMoved = dragging;
     dragging = null;
     syncConfigJson();
 });
@@ -186,9 +195,9 @@ document.getElementById('addTransfer').onclick = () => {
 };
 
 document.getElementById('deleteObject').onclick = () => {
-    if(!selected) return;
-    const idx = selected.idx;
-    switch(selected.type){
+    if(!lastMoved) return;
+    const idx = lastMoved.idx;
+    switch(lastMoved.type){
         case 'action':
             config.actionZones.splice(idx,1);
             break;
@@ -210,6 +219,7 @@ document.getElementById('deleteObject').onclick = () => {
             break;
     }
     selected = null;
+    lastMoved = null;
     initDraggables();
     drawCanvas();
     syncConfigJson();
@@ -244,7 +254,7 @@ document.getElementById('applyStage').onclick = () => {
     alert('適用しました');
 };
 
-const configJsonElem = document.getElementById('configJson');
-if(configJsonElem){
-    configJsonElem.addEventListener('change', () => syncConfigJson(false));
+initEditor();
+if(editor){
+    editor.on('change', () => syncConfigJson(false));
 }

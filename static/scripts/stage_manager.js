@@ -1,6 +1,6 @@
 let currentKey = null;
 
-async function loadStageList() {
+async function StageList() {
     const res = await fetch('/api/stages');
     const data = await res.json();
     const tbody = document.querySelector('#stageTable tbody');
@@ -17,7 +17,7 @@ async function loadStageList() {
 
 document.getElementById('createStage').onclick = () => {
     currentKey = null;
-    loadDefaultConfig();
+    DefaultConfig();
     document.getElementById('stageName').value = '';
     showEditor();
 };
@@ -51,7 +51,7 @@ function showEditor() {
 function showList() {
     document.getElementById('stage-editor').classList.add('hidden');
     document.getElementById('stage-list').classList.remove('hidden');
-    loadStageList();
+    StageList();
 }
 
-window.addEventListener('DOMContentLoaded', loadStageList);
+window.addEventListener('DOMContented', StageList);
