@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Stage Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div id="stage-list">
+    <h2>ステージ一覧</h2>
+    <button id="createStage">新規ステージ</button>
+    <table id="stageTable">
+        <thead><tr><th>名前</th><th>更新</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div id="stage-editor" class="hidden">
+    <h2 id="editorTitle">ステージ編集</h2>
+    <label>名前: <input type="text" id="stageName"></label>
+    <fieldset>
+        ゲーム時間 <input type="number" id="gameTime">
+        オーダー制限 <input type="number" id="orderTimeLimit">
+        ペナルティ <input type="number" id="wrongPenalty">
+    </fieldset>
+    <button id="addActionZone">アクションゾーン追加</button>
+    <canvas id="stageCanvas" width="800" height="600"></canvas>
+    <button id="saveStage">保存</button>
+    <button id="backList">戻る</button>
+</div>
+
+<script src="{{ url_for('static', filename='scripts/stage_manager.js') }}"></script>
+<script src="{{ url_for('static', filename='scripts/stage_editor.js') }}"></script>
+</body>
+</html>

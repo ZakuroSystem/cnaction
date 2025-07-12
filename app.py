@@ -87,6 +87,11 @@ def api_stage_get(key: str):
         data = json.load(f)
     return jsonify(data)
 
+@bp.route('/api/default_config')
+def api_default_config():
+    """Return built-in default configuration."""
+    return jsonify(get_default_config())
+
 # ─────────────────────────────────────────
 # 画像アップロード設定
 # ─────────────────────────────────────────
@@ -194,13 +199,14 @@ def upload_image():
 def index():
     return render_template('index.html')
 
-@bp.route('/settings')
-def settings():
-    return render_template('settings.html')
+@bp.route('/editor')
+def editor():
+    """Stage editor page."""
+    return render_template('editor.html')
 
 @bp.route('/admin')
 def admin():
-    return render_template('settings.html')
+    return render_template('admin.html')
 
 @bp.route('/admin_state')
 def admin_state():
