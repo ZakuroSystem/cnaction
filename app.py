@@ -1,18 +1,20 @@
 import os
 import time
 import random
-import json
-import itertools
-import shutil
-import datetime
-from io import BytesIO
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional
+from dataclasses import asdict
+from typing import Dict
 
 from flask import (
-    Flask, Blueprint, render_template, request, jsonify, send_file
+    Flask, Blueprint, render_template, request, jsonify
 )
 from flask_socketio import SocketIO, join_room
+
+from utils import (
+    get_default_config, in_zone, parse_transfer_objects,
+    find_next_step, update_orders, process_combinations,
+    export_config_response, save_uploaded_file
+)
+from models import Item, Player, RoomState
 
 # ─────────────────────────────────────────
 # App & SocketIO 初期化
@@ -45,75 +47,6 @@ os.makedirs(BACKUP_FOLDER, exist_ok=True)
 ALLOWED_EXT = {'.png', '.jpg', '.jpeg', '.gif'}
 UPLOAD_PASSWORD = '1234'
 
-# ─────────────────────────────────────────
-# デフォルト設定・型定義
-# ─────────────────────────────────────────
-def get_default_config() -> dict:
-    return {
-        'gameTime': 150,
-        'orderTimeLimit': 90,
-        'wrongOrderPenalty': 5,
-        'actionZones': [
-            {'x': 100, 'y': 500, 'width': 150, 'height': 150,
-             'action': 'cut', 'display': '切っている…', 'occupied': False},
-            {'x': 300, 'y': 500, 'width': 150, 'height': 150,
-             'action': 'bake', 'display': '焼いている…', 'occupied': False},
-        ],
-        'deliveryZone': {'x': 700, 'y': 500, 'width': 150, 'height': 150},
-        'movingObstacles': [{'x': 400, 'y': 300, 'width': 96, 'height': 96}],
-        'staticObstacles': [{'x': 600, 'y': 300, 'width': 96, 'height': 96}],
-        'foodGenerators': [{
-            'x': 750, 'y': 50, 'width': 96, 'height': 96,
-            'nextFood': random.choice(
-                ['ingredient_tomato', 'ingredient_lettuce', 'ingredient_bread']
-            )
-        }],
-        'transferObjects': [],
-        'customItems': [],
-        'combinationRecipes': [],
-        'cookingRecipes': [],
-        'dishList': [
-            'トマト(切って焼いたもの)',
-            'レタス(切って焼いたもの)',
-            'バンズ(切って焼いたもの)'
-        ],
-        'orderMapping': {
-            'ingredient_tomato': 'トマト(切って焼いたもの)',
-            'ingredient_lettuce': 'レタス(切って焼いたもの)',
-            'ingredient_bread': 'バンズ(切って焼いたもの)'
-        }
-    }
-
-@dataclass
-class Item:
-    id: int
-    type: str
-    x: float
-    y: float
-    state: str = 'raw'
-    display: Optional[str] = None
-
-@dataclass
-class Player:
-    x: float = 100
-    y: float = 100
-    currentItem: Optional[Item] = None
-    cooking: bool = False
-    currentZone: Optional[dict] = None
-    base_image: str = ''
-    image: str = ''
-
-@dataclass
-class RoomState:
-    players: Dict[str, Player] = field(default_factory=dict)
-    items: List[Item] = field(default_factory=list)
-    orders: List[dict] = field(default_factory=list)
-    score: int = 0
-    timer: int = 60
-    gameOver: bool = False
-    config: dict = field(default_factory=get_default_config)
-    nextItemId: int = 1
-    resetScheduled: bool = False
 
 # 全部屋の状態
 rooms: Dict[str, RoomState] = {}
@@ -145,86 +78,6 @@ def in_zone(x: float, y: float, zone: dict) -> bool:
         zone['y'] - zone['height']/2 <= y <= zone['y'] + zone['height']/2
     )
 
-def parse_transfer_objects(s: str) -> list:
-    objs = []
-    for part in s.split(';'):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            src, dst = part.split('->')
-            sx, sy, sw, sh = map(float, src.split(','))
-            dx, dy, dw, dh = map(float, dst.split(','))
-            objs.append({
-                'sourceZone': {'x': sx, 'y': sy, 'width': sw, 'height': sh},
-                'destination': {'x': dx, 'y': dy, 'width': dw, 'height': dh}
-            })
-        except:
-            pass
-    return objs
-
-def find_next_step(cfg: dict, item_type: str) -> Optional[dict]:
-    return next((
-        {'action': step['action'], 'result': step['result'], 'time': step['time']}
-        for r in cfg.get('cookingRecipes', [])
-        for prev, step in zip(
-            [{'result': r['base']}],
-            r['steps']
-        ) + list(zip(r['steps'], r['steps'][1:]))
-        if prev['result'] == item_type
-    ), None)
-
-def update_orders(room: str):
-    rs = rooms[room]
-    cfg = rs.config
-    new_orders = []
-    for o in rs.orders:
-        o['remaining'] = max(0, o['remaining'] - 1)
-        if o['remaining'] <= 0:
-            rs.score -= cfg.get('wrongOrderPenalty', 5)
-            new_orders.append({
-                'dish': random.choice(cfg.get('dishList', [])),
-                'remaining': cfg.get('orderTimeLimit', 30)
-            })
-        else:
-            new_orders.append(o)
-    rs.orders = new_orders
-
-def process_combinations(room: str):
-    rs = rooms[room]
-    items = rs.items
-    to_remove = set()
-    new_items: List[Item] = []
-    for rec in rs.config.get('combinationRecipes', []):
-        req = rec['ingredients']
-        thresh = rec['threshold']
-        result = rec['result']
-        mapping = {t: [i for i, it in enumerate(items) if it.type == t] for t in req}
-        if all(mapping.get(t) for t in req):
-            for combo in itertools.product(*(mapping[t] for t in req)):
-                if len(set(combo)) < len(combo):
-                    continue
-                coords = [(items[i].x, items[i].y) for i in combo]
-                if all(
-                    ((x1-x2)**2 + (y1-y2)**2) ** 0.5 <= thresh
-                    for (x1,y1),(x2,y2)
-                    in itertools.combinations(coords,2)
-                ):
-                    for i in combo:
-                        to_remove.add(i)
-                    avgx = sum(x for x,y in coords)/len(coords)
-                    avgy = sum(y for x,y in coords)/len(coords)
-                    new_items.append(Item(
-                        id=rs.nextItemId,
-                        type=result,
-                        x=avgx,
-                        y=avgy
-                    ))
-                    rs.nextItemId += 1
-                    break
-    if to_remove:
-        rs.items = [it for idx, it in enumerate(items) if idx not in to_remove]
-        rs.items.extend(new_items)
 
 def initialize_room(room: str, config: dict = None):
     cfg = config or get_default_config()
@@ -280,11 +133,7 @@ def upload_image():
 
     safe = f"{item_name}{ext}"
     dest = os.path.join(UPLOAD_FOLDER, safe)
-
-    if os.path.exists(dest):
-        ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        shutil.move(dest, os.path.join(BACKUP_FOLDER, f"{item_name}_{ts}{ext}"))
-    file.save(dest)
+    save_uploaded_file(file, dest, BACKUP_FOLDER, item_name)
 
     return jsonify(success=True, path=f"/static/assets/ingredient/{safe}")
 
@@ -310,12 +159,7 @@ def admin_state():
 @bp.route('/export_config')
 def export_config():
     room = request.args.get('room', '')
-    cfg = rooms.get(room, RoomState()).config
-    js = json.dumps(cfg, ensure_ascii=False, indent=2)
-    return send_file(BytesIO(js.encode('utf-8')),
-                     mimetype='application/json',
-                     as_attachment=True,
-                     download_name=f'{room or "default"}_config.json')
+    return export_config_response(room, rooms)
 
 @bp.route('/reset_room', methods=['POST'])
 def reset_room():
@@ -494,8 +338,8 @@ def game_timer_task():
                 if rs.timer <= 0:
                     rs.gameOver = True
                     rs.items.clear()
-            update_orders(room)
-            process_combinations(room)
+            update_orders(room, rooms)
+            process_combinations(room, rooms, Item)
             mark_dirty(room)
             if rs.gameOver and not rs.resetScheduled:
                 rs.resetScheduled = True
