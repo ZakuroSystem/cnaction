@@ -254,7 +254,9 @@ document.getElementById('applyStage').onclick = () => {
     alert('適用しました');
 };
 
-initEditor();
-if(editor){
-    editor.on('change', () => syncConfigJson(false));
-}
+window.addEventListener('DOMContentLoaded', () => {
+    initEditor();
+    if (editor) {
+        editor.on('change', () => syncConfigJson(false));
+    }
+});

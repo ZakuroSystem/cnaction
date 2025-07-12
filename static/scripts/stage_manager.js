@@ -15,12 +15,12 @@ async function StageList() {
     });
 }
 
-document.getElementById('createStage').onclick = () => {
-    currentKey = null;
-    DefaultConfig();
-    document.getElementById('stageName').value = '';
-    showEditor();
-};
+document.getElementById('createStage').onclick = () => {␊
+    currentKey = null;␊
+    loadDefaultConfig();
+    document.getElementById('stageName').value = '';␊
+    showEditor();␊
+};␊
 
 document.getElementById('stageTable').addEventListener('click', e => {
     const key = e.target.dataset.edit;
@@ -54,4 +54,4 @@ function showList() {
     StageList();
 }
 
-window.addEventListener('DOMContented', StageList);
+window.addEventListener('DOMContentLoaded', StageList);
