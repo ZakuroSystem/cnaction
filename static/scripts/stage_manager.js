@@ -15,12 +15,12 @@ async function StageList() {
     });
 }
 
-document.getElementById('createStage').onclick = () => {␊
-    currentKey = null;␊
+document.getElementById('createStage').onclick = () => {
+    currentKey = null;
     loadDefaultConfig();
-    document.getElementById('stageName').value = '';␊
-    showEditor();␊
-};␊
+    document.getElementById('stageName').value = '';
+    showEditor();
+};
 
 document.getElementById('stageTable').addEventListener('click', e => {
     const key = e.target.dataset.edit;
