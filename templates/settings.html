@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Stage Editor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+</head>
+<body>
+  <div id="mode-selection">
+    <button id="enterEditor">ステージ編集</button>
+    <button id="enterManager">ステージ管理</button>
+  </div>
+
+  <div id="stage-manager" class="hidden">
+    <h2>ステージ一覧</h2>
+    <button id="newStageBtn">新規ステージ</button>
+    <table id="stageList">
+      <thead><tr><th>名前</th><th>更新日時</th><th>操作</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button id="closeStageMgr">閉じる</button>
+  </div>
+
+  <div id="editor" class="hidden">
+    <h2 id="editorTitle">ステージ編集</h2>
+    <div class="sidebar">
+      <form id="editorForm">
+        <fieldset><legend>時間設定</legend>
+          ゲーム時間(sec): <input type="number" id="gameTime"><br>
+          オーダー制限(sec): <input type="number" id="orderTimeLimit"><br>
+          ペナルティ(pt): <input type="number" id="wrongOrderPenalty"><br>
+        </fieldset>
+        <fieldset><legend>アクションゾーン</legend>
+          <table id="actionZoneTable">
+            <thead><tr><th>動作</th><th>W</th><th>H</th><th>個数</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <button type="button" id="addAZRow">追加</button>
+        </fieldset>
+        <fieldset><legend>配膳エリア</legend>
+          W: <input type="number" id="deliveryWidth"> H: <input type="number" id="deliveryHeight">
+        </fieldset>
+        <fieldset><legend>動的障害物</legend>
+          個数: <span id="movingObstacleCount"></span>
+          <button type="button" id="addMovingObstacle">＋</button>
+          <button type="button" id="removeMovingObstacle">－</button><br>
+          W: <input type="number" id="movingObstacleWidth"> H: <input type="number" id="movingObstacleHeight">
+        </fieldset>
+        <fieldset><legend>静的障害物</legend>
+          個数: <span id="staticObstacleCount"></span>
+          <button type="button" id="addStaticObstacle">＋</button>
+          <button type="button" id="removeStaticObstacle">－</button><br>
+          W: <input type="number" id="staticObstacleWidth"> H: <input type="number" id="staticObstacleHeight">
+        </fieldset>
+        <fieldset><legend>転送オブジェクト</legend>
+          <table id="transferTable">
+            <thead><tr><th>送元W</th><th>送元H</th><th>送先W</th><th>送先H</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <button type="button" id="addTransferRow">追加</button>
+        </fieldset>
+        <button type="submit">適用</button>
+      </form>
+    </div>
+    <canvas id="previewCanvas" width="800" height="600"></canvas>
+    <button id="saveStageBtn">ステージ保存</button>
+    <button id="backToMode">戻る</button>
+  </div>
+
+  <script src="{{ url_for('static', filename='scripts/stage_manager.js') }}"></script>
+  <script src="{{ url_for('static', filename='scripts/stage_editor.js') }}"></script>
+</body>
+</html>

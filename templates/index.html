@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>Connect Action</title>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+<script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.js"></script>
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='main.js') }}"></script>
+</head>
+<body>
+  <div id="start-overlay">
+    <h2>ゲーム開始</h2>
+    <label>ルーム名: <input type="text" id="roomName" value="room1" /></label><br />
+    <img
+      id="startButton"
+      src="/static/assets/start_button.png"
+      alt="スタート"
+      style="cursor: pointer"
+    />
+    <p><a href="/settings">設定モードへ</a></p>
+  </div>
+
+  <div id="game-container" style="display: none"></div>
+  <div id="ui" style="display: none">
+    <div id="order-status">オーダー:</div>
+    <div id="timer">タイマー: 60</div>
+    <div id="score">スコア: 0</div>
+    <div id="inventory">持ち物: なし</div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      document
+        .getElementById("startButton")
+        .addEventListener("click", () => {
+          window.roomName =
+            document.getElementById("roomName").value || "room1";
+          window.playerId = ""; // サーバ側で自動採番
+          document.getElementById("start-overlay").style.display = "none";
+          document.getElementById("game-container").style.display = "block";
+          document.getElementById("ui").style.display = "block";
+        });
+    });
+  </script>
+</body>
+</html>

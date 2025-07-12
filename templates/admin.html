@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>管理者画面 - Connect Action</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+</head>
+<body>
+  <h1>管理者画面</h1>
+  <div id="roomList"></div>
+  <h2>設定ファイルの書き出し・読み込み</h2>
+  <form id="configForm" method="POST" action="/update_config_file" enctype="multipart/form-data">
+    ルーム名: <input type="text" name="room" value="room1"><br>
+    設定ファイルをアップロード: <input type="file" name="configFile"><br>
+    <button type="submit">設定更新</button>
+  </form>
+  <button id="refreshButton">最新状態を更新</button>
+  <script>
+    const socket = io();
+    function loadRooms() {
+      fetch('/admin_state')
+        .then(res => res.json())
+        .then(data => {
+          const roomListDiv = document.getElementById('roomList');
+          roomListDiv.innerHTML = "";
+          for (const room in data) {
+            const r = data[room];
+            roomListDiv.innerHTML += `<div style="border:1px solid #ccc; margin:5px; padding:5px;">
+              <strong>ルーム: ${room}</strong><br>
+              タイマー: ${r.timer}<br>
+              スコア: ${r.score}<br>
+              注文: ${r.orders.map(o => o.dish + " (" + o.remaining + "秒)").join(" / ")}<br>
+              プレイヤー数: ${Object.keys(r.players).length}<br>
+              <button onclick="resetRoom('${room}')">リセット</button>
+              <button onclick="exportConfig('${room}')">設定書き出し</button>
+            </div>`;
+          }
+        });
+    }
+    function resetRoom(room) {
+      const formData = new FormData();
+      formData.append("room", room);
+      fetch('/reset_room', { method: 'POST', body: formData })
+        .then(res => res.text())
+        .then(text => {
+          alert(text);
+          loadRooms();
+        });
+    }
+    function exportConfig(room) {
+      window.location.href = `/export_config?room=${room}`;
+    }
+    document.getElementById('refreshButton').addEventListener('click', loadRooms);
+    loadRooms();
+  </script>
+</body>
+</html>
