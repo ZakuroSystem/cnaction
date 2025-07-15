@@ -123,8 +123,9 @@ def flush_dirty():
         dirty_flags.pop(room, None)
 
 def coalesce_broadcast_loop():
+    BROADCAST_INTERVAL = 1/30  # 30 FPS
     while True:
-        socketio.sleep(1)
+        socketio.sleep(BROADCAST_INTERVAL)
         flush_dirty()
 
 def in_zone(x: float, y: float, zone: dict) -> bool:
