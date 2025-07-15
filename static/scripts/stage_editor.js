@@ -22,6 +22,10 @@ function loadDefaultConfig() {
             syncConfigJson();
         });
 }
+// expose for other scripts
+window.loadDefaultConfig = loadDefaultConfig;
+// backward compatibility for old name
+window.DefaultConfig = loadDefaultConfig;
 
 function fillForm() {
     document.getElementById('gameTime').value = config.gameTime;
@@ -256,7 +260,11 @@ document.getElementById('applyStage').onclick = () => {
 
 window.addEventListener('DOMContentLoaded', () => {
     initEditor();
-    if (editor) {
+    if (editor && typeof editor.on === 'function') {
+        // JSONEditor v10 exposes an on() method to subscribe to events
         editor.on('change', () => syncConfigJson(false));
+    } else if (editor && editor.aceEditor && typeof editor.aceEditor.on === 'function') {
+        // Fallback for versions without editor.on
+        editor.aceEditor.on('change', () => syncConfigJson(false));
     }
 });

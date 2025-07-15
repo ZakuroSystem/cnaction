@@ -17,7 +17,9 @@ async function StageList() {
 
 document.getElementById('createStage').onclick = () => {
     currentKey = null;
-    loadDefaultConfig();
+    if (typeof loadDefaultConfig === 'function') {
+        loadDefaultConfig();
+    }
     document.getElementById('stageName').value = '';
     showEditor();
 };
@@ -46,11 +48,7 @@ document.getElementById('backList').onclick = () => {
 function showEditor() {
     document.getElementById('stage-list').classList.add('hidden');
     document.getElementById('stage-editor').classList.remove('hidden');
-}
 
-function showList() {
-    document.getElementById('stage-editor').classList.add('hidden');
-    document.getElementById('stage-list').classList.remove('hidden');
     StageList();
 }
 
