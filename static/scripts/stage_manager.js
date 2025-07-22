@@ -19,8 +19,8 @@ document.getElementById('createStage').onclick = () => {
     currentKey = null;
     if (typeof loadDefaultConfig === 'function') {
         loadDefaultConfig();
+        if (typeof updateDetailsPanel === 'function') updateDetailsPanel();
     }
-    document.getElementById('stageName').value = '';
     showEditor();
 };
 
@@ -37,6 +37,7 @@ document.getElementById('stageTable').addEventListener('click', e => {
             initDraggables();
             drawCanvas();
             if(typeof syncConfigJson === 'function') syncConfigJson();
+            if(typeof updateDetailsPanel === 'function') updateDetailsPanel();
             showEditor();
         });
 });

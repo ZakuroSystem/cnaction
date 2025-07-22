@@ -5,9 +5,7 @@
     <title>Stage Editor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='scripts/lib/jsoneditor.min.css') }}">
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='scripts/lib/jsoneditor.min.js') }}"></script>
 </head>
 <body>
 <div class="container mt-4" id="stage-list">
@@ -39,8 +37,35 @@
     </div>
     <canvas id="stageCanvas" width="800" height="600" class="mb-3"></canvas>
     <div class="mb-3">
-        <label class="form-label">JSON:</label>
-        <div id="configEditor" style="height:400px;"></div>
+    <canvas id="stageCanvas" width="800" height="600" class="mb-3"></canvas>
+    <div id="objectDetails" class="card p-2 mb-3 hidden">
+        <div class="mb-2">選択オブジェクト: <span id="objType"></span></div>
+        <div class="row g-2">
+            <div class="col"><label class="form-label">X
+                <input type="number" id="objX" class="form-control"></label></div>
+            <div class="col"><label class="form-label">Y
+                <input type="number" id="objY" class="form-control"></label></div>
+            <div class="col"><label class="form-label">幅
+                <input type="number" id="objW" class="form-control"></label></div>
+            <div class="col"><label class="form-label">高さ
+                <input type="number" id="objH" class="form-control"></label></div>
+        </div>
+        <div id="actionField" class="mt-2 hidden">
+            <label class="form-label">アクション
+                <select id="objAction" class="form-select">
+                    <option value="cut">cut</option>
+                    <option value="bake">bake</option>
+                </select>
+            </label>
+            <label class="form-label ms-2">表示
+                <input type="text" id="objDisplay" class="form-control d-inline-block w-auto"></label>
+        </div>
+        <div id="foodField" class="mt-2 hidden">
+            <label class="form-label">次の食材
+                <input type="text" id="objNextFood" class="form-control d-inline-block w-auto"></label>
+        </div>
+    </div>
+        <textarea id="configEditor" class="form-control" rows="10"></textarea>
     </div>
     <button id="saveStage" class="btn btn-primary">保存</button>
     <label class="ms-2">適用先ルーム: <input type="text" id="applyRoom" value="room1" class="form-control d-inline-block w-auto"></label>

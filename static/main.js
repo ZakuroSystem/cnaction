@@ -47,9 +47,10 @@ class GameScene extends Phaser.Scene {
     this.staticObsGroup = this.physics.add.staticGroup();
     this.movingObsGroup = this.add.group();
     this.transferGroup = this.add.group();
-  
-    this.chopZoneImage = this.add.image(100, 500, 'cooking_zone1').setDisplaySize(150, 150);
-    this.bakeZoneImage = this.add.image(300, 500, 'cooking_zone2').setDisplaySize(150, 150);
+
+    // 調理場（アクションゾーン）をまとめるグループ
+    this.actionZoneGroup = this.add.group();
+    // 配膳エリアは1つのみ想定
     this.deliveryZoneImage = this.add.image(700, 500, 'delivery_zone').setDisplaySize(150, 150);
   
     this.foodGenImages = [];
@@ -247,18 +248,14 @@ class GameScene extends Phaser.Scene {
         this.movingObsGroup.add(spr);
       });
     }
-  
-    const cutZone = (this.serverState.config.actionZones || []).find(z => z.action === 'cut');
-    if (cutZone) {
-      this.chopZoneImage.setPosition(cutZone.x, cutZone.y);
-      this.chopZoneImage.setDisplaySize(cutZone.width, cutZone.height);
-    }
-
-    const bakeZone = (this.serverState.config.actionZones || []).find(z => z.action === 'bake');
-    if (bakeZone) {
-      this.bakeZoneImage.setPosition(bakeZone.x, bakeZone.y);
-      this.bakeZoneImage.setDisplaySize(bakeZone.width, bakeZone.height);
-    }
+      // 調理場の表示を更新（ゾーン数の変化にも対応するため毎回作り直す）
+    this.actionZoneGroup.clear(true, true);
+    (this.serverState.config.actionZones || []).forEach(z => {
+      let tex = 'cooking_zone1';
+      if (z.action === 'bake') tex = 'cooking_zone2';
+      const img = this.add.image(z.x, z.y, tex).setDisplaySize(z.width, z.height);
+      this.actionZoneGroup.add(img);
+    });
     if (this.serverState.config.deliveryZone) {
       let dz = this.serverState.config.deliveryZone;
       this.deliveryZoneImage.setPosition(dz.x, dz.y);

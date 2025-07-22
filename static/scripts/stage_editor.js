@@ -11,6 +11,20 @@ const bg = new Image();
 bg.src = '/static/assets/background/kitchen.png';
 bg.onload = drawCanvas;
 
+const details = {
+    panel: document.getElementById('objectDetails'),
+    type: document.getElementById('objType'),
+    x: document.getElementById('objX'),
+    y: document.getElementById('objY'),
+    w: document.getElementById('objW'),
+    h: document.getElementById('objH'),
+    actionField: document.getElementById('actionField'),
+    action: document.getElementById('objAction'),
+    display: document.getElementById('objDisplay'),
+    foodField: document.getElementById('foodField'),
+    nextFood: document.getElementById('objNextFood')
+};
+
 function loadDefaultConfig() {
     fetch('/api/default_config')
         .then(r => r.json())
@@ -52,19 +66,20 @@ function readForm() {
 
 let editor = null;
 function initEditor(){
-    const container = document.getElementById('configEditor');
-    if(container){
-        editor = new JSONEditor(container, {mode:'tree'});
-    }
+    editor = document.getElementById('configEditor');
 }
 
 function syncConfigJson(toEditor=true){
     if(!editor) return;
     if(toEditor){
-        editor.set(config);
+        editor.value = JSON.stringify(config, null, 2);
     }else{
         try{
-            config = editor.get();
+            if(editor.value.trim()){
+                config = JSON.parse(editor.value);
+            } else {
+                config = {};
+            }
             fillForm();
             initDraggables();
             drawCanvas();
@@ -119,6 +134,68 @@ function drawCanvas() {
     ctx.lineWidth = 1;
 }
 
+function updateDetailsPanel() {
+    if (!details.panel) return;
+    if (!selected) {
+        details.panel.classList.add('hidden');
+        return;
+    }
+    details.panel.classList.remove('hidden');
+    details.type.textContent = selected.type;
+    details.x.value = Math.round(selected.x);
+    details.y.value = Math.round(selected.y);
+    details.w.value = selected.width;
+    details.h.value = selected.height;
+    details.actionField.classList.add('hidden');
+    details.foodField.classList.add('hidden');
+    if (selected.type === 'action') {
+        details.actionField.classList.remove('hidden');
+        details.action.value = selected.action;
+        details.display.value = selected.display || '';
+    }
+    if (selected.type === 'foodGen') {
+        details.foodField.classList.remove('hidden');
+        details.nextFood.value = selected.nextFood || '';
+    }
+}
+
+function applyDetails() {
+    if (!selected) return;
+    selected.x = +details.x.value;
+    selected.y = +details.y.value;
+    selected.width = +details.w.value;
+    selected.height = +details.h.value;
+    const idx = selected.idx;
+    switch (selected.type) {
+        case 'action':
+            selected.action = details.action.value;
+            selected.display = details.display.value;
+            Object.assign(config.actionZones[idx], selected);
+            break;
+        case 'delivery':
+            Object.assign(config.deliveryZone, selected);
+            break;
+        case 'moving':
+            Object.assign(config.movingObstacles[idx], selected);
+            break;
+        case 'static':
+            Object.assign(config.staticObstacles[idx], selected);
+            break;
+        case 'foodGen':
+            selected.nextFood = details.nextFood.value;
+            Object.assign(config.foodGenerators[idx], selected);
+            break;
+        case 'transferSrc':
+            Object.assign(config.transferObjects[idx].sourceZone, selected);
+            break;
+        case 'transferDst':
+            Object.assign(config.transferObjects[idx].destination, selected);
+            break;
+    }
+    drawCanvas();
+    syncConfigJson();
+}
+
 canvas.addEventListener('mousedown', e => {
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -127,6 +204,7 @@ canvas.addEventListener('mousedown', e => {
     selected = dragging;
     if(dragging){ dx = mx - dragging.x; dy = my - dragging.y; }
     drawCanvas();
+    updateDetailsPanel();
 });
 
 canvas.addEventListener('mousemove', e => {
@@ -148,6 +226,7 @@ canvas.addEventListener('mouseup', () => {
     if(dragging.type === 'transferDst') Object.assign(config.transferObjects[dragging.idx].destination, {x:dragging.x, y:dragging.y});
     lastMoved = dragging;
     dragging = null;
+    updateDetailsPanel();
     syncConfigJson();
 });
 
@@ -156,6 +235,7 @@ document.getElementById('addActionZone').onclick = () => {
     initDraggables();
     selected = null;
     drawCanvas();
+    updateDetailsPanel();
     syncConfigJson();
 };
 
@@ -165,6 +245,7 @@ document.getElementById('addMovingObstacle').onclick = () => {
     initDraggables();
     selected = null;
     drawCanvas();
+    updateDetailsPanel();
     syncConfigJson();
 };
 
@@ -174,6 +255,7 @@ document.getElementById('addStaticObstacle').onclick = () => {
     initDraggables();
     selected = null;
     drawCanvas();
+    updateDetailsPanel();
     syncConfigJson();
 };
 
@@ -183,6 +265,7 @@ document.getElementById('addFoodGen').onclick = () => {
     initDraggables();
     selected = null;
     drawCanvas();
+    updateDetailsPanel();
     syncConfigJson();
 };
 
@@ -195,6 +278,7 @@ document.getElementById('addTransfer').onclick = () => {
     initDraggables();
     selected = null;
     drawCanvas();
+    updateDetailsPanel();
     syncConfigJson();
 };
 
@@ -226,6 +310,7 @@ document.getElementById('deleteObject').onclick = () => {
     lastMoved = null;
     initDraggables();
     drawCanvas();
+    updateDetailsPanel();
     syncConfigJson();
 };
 
@@ -258,6 +343,10 @@ document.getElementById('applyStage').onclick = () => {
     alert('適用しました');
 };
 
+['x','y','w','h','action','display','nextFood'].forEach(k => {
+    if(details[k]) details[k].addEventListener('input', applyDetails);
+});
+
 window.addEventListener('DOMContentLoaded', () => {
     initEditor();
     if (editor && typeof editor.on === 'function') {
@@ -267,4 +356,5 @@ window.addEventListener('DOMContentLoaded', () => {
         // Fallback for versions without editor.on
         editor.aceEditor.on('change', () => syncConfigJson(false));
     }
+    updateDetailsPanel();
 });
