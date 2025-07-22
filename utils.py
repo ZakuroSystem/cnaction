@@ -83,16 +83,23 @@ def find_next_step(cfg: dict, item_type: str) -> Optional[dict]:
     base item and all subsequent steps sequentially.
     """
 
-    for recipe in cfg.get('cookingRecipes', []):
+    recipes = cfg.get('cookingRecipes') or []
+    if not isinstance(recipes, list):
+        return None
+
+    for recipe in recipes:
         prev_result = recipe.get('base')
-        for step in recipe.get('steps', []):
+        steps = recipe.get('steps') or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
             if prev_result == item_type:
                 return {
-                    'action': step['action'],
-                    'result': step['result'],
-                    'time': step['time'],
+                    'action': step.get('action'),
+                    'result': step.get('result'),
+                    'time': step.get('time'),
                 }
-            prev_result = step['result']
+            prev_result = step.get('result')
     return None
 
 def update_orders(room: str, rooms: Dict[str, 'RoomState']):
