@@ -75,15 +75,32 @@ def parse_transfer_objects(s: str) -> list:
     return objs
 
 def find_next_step(cfg: dict, item_type: str) -> Optional[dict]:
-    return next((
-        {'action': step['action'], 'result': step['result'], 'time': step['time']}
-        for r in cfg.get('cookingRecipes', [])
-        for prev, step in zip(
-            [{'result': r['base']}],
-            r['steps'],
-        ) + list(zip(r['steps'], r['steps'][1:]))
-        if prev['result'] == item_type
-    ), None)
+    """Return the next cooking step for the given item type.
+
+    The previous implementation attempted to concatenate a ``zip`` object with a
+    list, which raised ``TypeError`` and prevented any cooking action from being
+    triggered.  This rewritten version iterates over each recipe and checks the
+    base item and all subsequent steps sequentially.
+    """
+
+    recipes = cfg.get('cookingRecipes') or []
+    if not isinstance(recipes, list):
+        return None
+
+    for recipe in recipes:
+        prev_result = recipe.get('base')
+        steps = recipe.get('steps') or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if prev_result == item_type:
+                return {
+                    'action': step.get('action'),
+                    'result': step.get('result'),
+                    'time': step.get('time'),
+                }
+            prev_result = step.get('result')
+    return None
 
 def update_orders(room: str, rooms: Dict[str, 'RoomState']):
     rs = rooms[room]
