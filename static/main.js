@@ -8,6 +8,8 @@ class GameScene extends Phaser.Scene {
     this.movingObsInitialized = false;
     this.transferGroup = null;
     this.itemOverlay = {}; // 各プレイヤーのアイテムオーバーレイ管理
+    this.orderListEl = null;
+    this.cookingOverlays = {};
   }
   
   preload() {
@@ -64,13 +66,7 @@ class GameScene extends Phaser.Scene {
       });
     }
   
-    // 新規追加: 注文表示用テキスト（画面左上）
-    this.orderText = this.add.text(10, 10, '', {
-      font: '24px Arial',
-      fill: '#ffffff',
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      padding: { x: 10, y: 10 }
-    }).setDepth(9999);
+    this.orderListEl = document.getElementById('order-list');
     // 新規追加: タイマー表示用テキスト（画面右下、原点を右下に合わせる）
     this.timerText = this.add.text(790, 590, '', {
       font: '24px Arial',
@@ -107,11 +103,7 @@ class GameScene extends Phaser.Scene {
       // スコアは既存の DOM 表示をそのままとする（必要であれば Phaser テキストに変更可能）
       document.getElementById('score').textContent = 'スコア: ' + state.score;
   
-      // 注文表示: 画面左上に見やすいように改行区切りで表示
-      let orderStr = "オーダー:\n" + state.orders.map(o => {
-         return `${o.dish}: ${o.remaining}秒`;
-      }).join("\n");
-      this.orderText.setText(orderStr);
+      this.renderOrders(state);
   
       // タイマー表示: 画面右下に更新
       this.timerText.setText('タイマー: ' + state.timer);
@@ -140,7 +132,7 @@ class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.playerSprite, this.staticObsGroup);
     this.physics.add.collider(this.playerSprite, this.movingObsGroup);
   }
-  
+
   updateObjects() {
     if (!this.serverState) return;
     const my = this.serverState.players[window.playerId];
@@ -222,7 +214,7 @@ class GameScene extends Phaser.Scene {
   
     this.itemGroup.clear(true, true);
     for (let item of this.serverState.items) {
-      let spr = this.add.sprite(item.x, item.y, item.type).setDisplaySize(96, 96);
+      let spr = this.add.sprite(item.x, item.y, item.type).setDisplaySize(96, 96).setDepth(200);
       this.itemGroup.add(spr);
     }
   
@@ -248,13 +240,28 @@ class GameScene extends Phaser.Scene {
         this.movingObsGroup.add(spr);
       });
     }
-      // 調理場の表示を更新（ゾーン数の変化にも対応するため毎回作り直す）
+    // 調理場の表示を更新（ゾーン数の変化にも対応するため毎回作り直す）
+    const actionZones = this.serverState.config.actionZones || [];
+    const activeCookingKeys = new Set();
     this.actionZoneGroup.clear(true, true);
-    (this.serverState.config.actionZones || []).forEach(z => {
+    actionZones.forEach((z, idx) => {
       let tex = 'cooking_zone1';
       if (z.action === 'bake') tex = 'cooking_zone2';
-      const img = this.add.image(z.x, z.y, tex).setDisplaySize(z.width, z.height);
+      const img = this.add.image(z.x, z.y, tex).setDisplaySize(z.width, z.height).setDepth(40);
       this.actionZoneGroup.add(img);
+
+      const key = `zone-${idx}`;
+      if (z.cooking) {
+        activeCookingKeys.add(key);
+        this.renderCookingOverlay(key, z, z.cooking);
+      } else {
+        this.destroyCookingOverlay(key);
+      }
+    });
+    Object.keys(this.cookingOverlays).forEach(key => {
+      if (!activeCookingKeys.has(key)) {
+        this.destroyCookingOverlay(key);
+      }
     });
     if (this.serverState.config.deliveryZone) {
       let dz = this.serverState.config.deliveryZone;
@@ -285,7 +292,149 @@ class GameScene extends Phaser.Scene {
       });
     }
   }
-  
+
+  getOrderIcon(order) {
+    if (!order) return null;
+    if (order.image) return order.image;
+    if (order.itemType) {
+      const base = order.itemType.replace(/^ingredient_/, '');
+      return `/static/assets/ingredient/${base}.png`;
+    }
+    return null;
+  }
+
+  renderOrders(state) {
+    if (!this.orderListEl) return;
+
+    const listEl = this.orderListEl;
+    const frag = document.createDocumentFragment();
+    const limit = state.config?.orderTimeLimit ?? null;
+
+    state.orders.forEach((order, index) => {
+      const card = document.createElement('div');
+      card.className = 'order-card';
+
+      const thumb = document.createElement('div');
+      thumb.className = 'order-card__thumb';
+      const iconSrc = this.getOrderIcon(order);
+      if (iconSrc) {
+        const img = document.createElement('img');
+        img.src = iconSrc;
+        img.alt = order.dish || 'オーダー';
+        img.loading = 'lazy';
+        thumb.appendChild(img);
+      } else {
+        thumb.classList.add('order-card__thumb--placeholder');
+        thumb.setAttribute('aria-hidden', 'true');
+      }
+
+      const details = document.createElement('div');
+      details.className = 'order-card__details';
+
+      const name = document.createElement('div');
+      name.className = 'order-card__name';
+      const dish = order.dish || '???';
+      name.textContent = `${index + 1}. ${dish}`;
+      name.title = dish;
+
+      const timer = document.createElement('div');
+      timer.className = 'order-card__timer';
+      timer.setAttribute('role', 'progressbar');
+
+      const bar = document.createElement('div');
+      bar.className = 'order-card__timer-bar';
+
+      const remaining = Math.max(order.remaining ?? 0, 0);
+      const baseLimit = limit ?? Math.max(remaining, 1);
+      const ratio = baseLimit > 0 ? Math.min(Math.max(remaining / baseLimit, 0), 1) : 0;
+      bar.style.width = `${ratio * 100}%`;
+      if (ratio < 0.34) {
+        bar.style.background = 'linear-gradient(90deg, #ef5350, #e53935)';
+      } else if (ratio < 0.67) {
+        bar.style.background = 'linear-gradient(90deg, #ffa726, #fb8c00)';
+      }
+
+      timer.setAttribute('aria-valuemin', '0');
+      timer.setAttribute('aria-valuemax', baseLimit.toString());
+      timer.setAttribute('aria-valuenow', remaining.toString());
+      timer.setAttribute('aria-label', `${dish} 残り ${remaining} 秒`);
+
+      timer.appendChild(bar);
+
+      details.appendChild(name);
+      details.appendChild(timer);
+
+      card.appendChild(thumb);
+      card.appendChild(details);
+
+      frag.appendChild(card);
+    });
+
+    listEl.innerHTML = '';
+    listEl.appendChild(frag);
+  }
+
+  destroyCookingOverlay(key) {
+    const overlay = this.cookingOverlays[key];
+    if (!overlay) return;
+    overlay.sprite.destroy();
+    overlay.gauge.destroy();
+    overlay.label.destroy();
+    delete this.cookingOverlays[key];
+  }
+
+  renderCookingOverlay(key, zone, data) {
+    let overlay = this.cookingOverlays[key];
+    const textureKey = data.texture || data.itemType || data.result_type || 'ingredient_tomato';
+
+    if (!overlay) {
+      const sprite = this.add.sprite(zone.x, zone.y, textureKey)
+        .setDisplaySize(Math.min(96, zone.width * 0.8), Math.min(96, zone.height * 0.8))
+        .setDepth(420);
+      const label = this.add.text(zone.x, zone.y - zone.height / 2 - 8, data.displayText || '調理中…', {
+        font: '16px "Noto Sans JP", sans-serif',
+        fill: '#ffffff',
+        backgroundColor: 'rgba(0, 0, 0, 0.65)',
+        padding: { x: 8, y: 4 },
+        align: 'center'
+      }).setOrigin(0.5, 1).setDepth(421);
+      const gauge = this.add.graphics().setDepth(421);
+      overlay = { sprite, label, gauge };
+      this.cookingOverlays[key] = overlay;
+    }
+
+    if (textureKey && overlay.sprite.texture.key !== textureKey) {
+      overlay.sprite.setTexture(textureKey);
+    }
+    overlay.sprite.setPosition(zone.x, zone.y);
+    overlay.sprite.setDisplaySize(Math.min(96, zone.width * 0.8), Math.min(96, zone.height * 0.8));
+
+    const labelText = data.displayText || '調理中…';
+    overlay.label.setText(labelText);
+    overlay.label.setPosition(zone.x, zone.y - zone.height / 2 - 8);
+
+    const barWidth = Math.min(zone.width * 0.8, 180);
+    const barX = zone.x - barWidth / 2;
+    const barY = zone.y + zone.height / 2 + 16;
+    const progress = Phaser.Math.Clamp(data.progress ?? 0, 0, 1);
+
+    overlay.gauge.clear();
+    overlay.gauge.fillStyle(0x000000, 0.65);
+    overlay.gauge.fillRoundedRect(barX, barY, barWidth, 12, 6);
+
+    const innerWidth = Math.max(barWidth * progress - 4, 0);
+    if (innerWidth > 0) {
+      let color = 0x4caf50;
+      if (progress < 0.34) {
+        color = 0xef5350;
+      } else if (progress < 0.67) {
+        color = 0xffb74d;
+      }
+      overlay.gauge.fillStyle(color, 0.9);
+      overlay.gauge.fillRoundedRect(barX + 2, barY + 2, innerWidth, 8, 4);
+    }
+  }
+
   update() {
     if (this.inventoryText && this.inventoryText.visible) {
       this.inventoryText.setPosition(this.playerSprite.x, this.playerSprite.y - 60);
