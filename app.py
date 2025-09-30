@@ -13,7 +13,7 @@ from flask_socketio import SocketIO, join_room
 from utils import (
     get_default_config, in_zone, parse_transfer_objects,
     find_next_step, update_orders, process_combinations,
-    export_config_response, save_uploaded_file
+    export_config_response, save_uploaded_file, build_order
 )
 from models import Item, Player, RoomState
 
@@ -153,10 +153,7 @@ def initialize_room(room: str, config: dict = None):
     rs = RoomState()
     rs.config = cfg
     rs.timer = cfg.get('gameTime', rs.timer)
-    rs.orders = [{
-        'dish': random.choice(cfg.get('dishList', [])),
-        'remaining': cfg.get('orderTimeLimit', 30)
-    } for _ in range(3)]
+    rs.orders = [build_order(cfg) for _ in range(3)]
 
     for _ in range(3):
         itm = Item(
@@ -232,10 +229,7 @@ def reset_room():
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.score = 0
     rs.gameOver = False
-    rs.orders = [{
-        'dish': random.choice(cfg.get('dishList', [])),
-        'remaining': cfg.get('orderTimeLimit', 30)
-    } for _ in range(3)]
+    rs.orders = [build_order(cfg) for _ in range(3)]
     rs.resetScheduled = False
     mark_dirty(room)
     return "Reset", 200
@@ -365,10 +359,7 @@ def on_interact(data):
         if delivered == expected:
             rs.score += 10
             rs.orders.pop(0)
-            rs.orders.append({
-                'dish': random.choice(cfg['dishList']),
-                'remaining': cfg['orderTimeLimit']
-            })
+            rs.orders.append(build_order(cfg))
         else:
             rs.score -= cfg['wrongOrderPenalty']
         p.currentItem = None
