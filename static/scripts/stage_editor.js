@@ -43,8 +43,12 @@ const typeLabels = {
     transferDst: 'ワープ出口'
 };
 
-const texturePaths = {
-    action: '/static/assets/cooking_zone1.png',
+const baseTexturePaths = {
+    action_default: '/static/assets/cooking_zone1.png',
+    action_cut: '/static/assets/cooking_zone1.png',
+    action_bake: '/static/assets/cooking_zone2.png',
+    action_boil: '/static/assets/cooking_zone2.png',
+    action_mix: '/static/assets/cooking_zone1.png',
     delivery: '/static/assets/delivery_zone.png',
     moving: '/static/assets/obstacle/obstacle2.png',
     static: '/static/assets/obstacle/obstacle1.png',
@@ -53,13 +57,62 @@ const texturePaths = {
     transferDst: '/static/assets/destinationImage.png'
 };
 
+const ingredientTexturePaths = {
+    ingredient_tomato: '/static/assets/ingredient/tomato.png',
+    ingredient_lettuce: '/static/assets/ingredient/lettuce.png',
+    ingredient_bread: '/static/assets/ingredient/bread.png'
+};
+
 const textures = {};
-Object.entries(texturePaths).forEach(([key, path]) => {
+const failedTextures = new Map();
+
+function registerTexture(key, path) {
+    if (!key || !path || textures[key]) return;
     const img = new Image();
     img.src = path;
-    img.onload = () => drawCanvas();
+    img.onload = () => {
+        failedTextures.delete(key);
+        drawCanvas();
+    };
+    img.onerror = () => {
+        if (textures[key] === img) {
+            delete textures[key];
+        }
+        const current = failedTextures.get(key) || 0;
+        failedTextures.set(key, current + 1);
+    };
     textures[key] = img;
-});
+}
+
+Object.entries(baseTexturePaths).forEach(([key, path]) => registerTexture(key, path));
+Object.entries(ingredientTexturePaths).forEach(([key, path]) => registerTexture(key, path));
+
+function ensureTexture(key) {
+    if (!key) return null;
+    if (textures[key]) return textures[key];
+    if (baseTexturePaths[key]) {
+        registerTexture(key, baseTexturePaths[key]);
+        return textures[key];
+    }
+    if (ingredientTexturePaths[key]) {
+        registerTexture(key, ingredientTexturePaths[key]);
+        return textures[key];
+    }
+    const failures = failedTextures.get(key) || 0;
+    if (key.startsWith('ingredient_')) {
+        if (failures === 0) {
+            const name = key.substring('ingredient_'.length);
+            registerTexture(key, `/static/assets/ingredient/${name}.png`);
+        } else if (failures === 1) {
+            registerTexture(key, `/static/assets/${key}.png`);
+        }
+        return textures[key] || null;
+    }
+    if (failures === 0) {
+        registerTexture(key, `/static/assets/${key}.png`);
+    }
+    return textures[key] || null;
+}
 
 let editor = null;
 
@@ -281,29 +334,211 @@ function readForm(updateUi = true) {
     }
 }
 
+const renderOrder = {
+    static: 0,
+    moving: 1,
+    transferSrc: 2,
+    transferDst: 2,
+    action: 3,
+    foodGen: 4,
+    delivery: 5
+};
+
+const actionBadges = {
+    cut: '切る',
+    chop: '切る',
+    bake: '焼く',
+    grill: '焼く',
+    boil: '茹で',
+    mix: '混ぜ',
+    default: '調理'
+};
+
+function beginRoundedRectPath(x, y, width, height, radius) {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+function getTextureForDraggable(d) {
+    if (d.type === 'action') {
+        const key = `action_${d.action || 'default'}`;
+        return ensureTexture(key) || ensureTexture('action_default');
+    }
+    return ensureTexture(d.type) || null;
+}
+
+function drawFloorGrid() {
+    const cellSize = 96;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let x = cellSize; x < canvas.width; x += cellSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+    }
+    for (let y = cellSize; y < canvas.height; y += cellSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function drawTransferConnections() {
+    if (!config.transferObjects || !config.transferObjects.length) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 170, 255, 0.6)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([14, 10]);
+    config.transferObjects.forEach(tr => {
+        if (!tr || !tr.sourceZone || !tr.destination) return;
+        ctx.beginPath();
+        ctx.moveTo(tr.sourceZone.x, tr.sourceZone.y);
+        ctx.lineTo(tr.destination.x, tr.destination.y);
+        ctx.stroke();
+        const angle = Math.atan2(tr.destination.y - tr.sourceZone.y, tr.destination.x - tr.sourceZone.x);
+        const arrowSize = 14;
+        const ax = tr.destination.x - Math.cos(angle) * 20;
+        const ay = tr.destination.y - Math.sin(angle) * 20;
+        ctx.beginPath();
+        ctx.moveTo(tr.destination.x, tr.destination.y);
+        ctx.lineTo(ax + Math.cos(angle + Math.PI / 2) * arrowSize, ay + Math.sin(angle + Math.PI / 2) * arrowSize);
+        ctx.lineTo(ax + Math.cos(angle - Math.PI / 2) * arrowSize, ay + Math.sin(angle - Math.PI / 2) * arrowSize);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0, 170, 255, 0.6)';
+        ctx.fill();
+    });
+    ctx.restore();
+}
+
+function drawActionBadge(d, left, top, width, height) {
+    const label = actionBadges[d.action] || actionBadges.default;
+    ctx.save();
+    ctx.font = '16px "M PLUS Rounded 1c", sans-serif';
+    ctx.textBaseline = 'middle';
+    const padding = 8;
+    const textWidth = ctx.measureText(label).width;
+    const badgeWidth = textWidth + padding * 2;
+    const badgeHeight = 28;
+    const badgeX = left + width / 2 - badgeWidth / 2;
+    const badgeY = top + height - badgeHeight - 8;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    beginRoundedRectPath(badgeX, badgeY, badgeWidth, badgeHeight, 12);
+    ctx.fill();
+    ctx.fillStyle = '#fffde7';
+    ctx.fillText(label, badgeX + padding, badgeY + badgeHeight / 2);
+    ctx.restore();
+}
+
+function drawFoodPreview(d, left, top, width, height) {
+    if (!d.nextFood) return;
+    const img = ensureTexture(d.nextFood);
+    if (!img || !img.complete) return;
+    const size = Math.min(width * 0.6, 72);
+    const bubbleRadius = size / 2 + 8;
+    const cx = d.x;
+    let cy = top - bubbleRadius - 8;
+    if (cy < bubbleRadius + 6) {
+        cy = top + height + bubbleRadius + 8;
+    }
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, bubbleRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowColor = 'transparent';
+    ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+    ctx.restore();
+}
+
+function drawTransferLabel(d, left, top, width, height) {
+    const label = d.type === 'transferSrc' ? '入口' : '出口';
+    ctx.save();
+    ctx.font = '15px "M PLUS Rounded 1c", sans-serif';
+    ctx.textBaseline = 'middle';
+    const padding = 6;
+    const textWidth = ctx.measureText(label).width;
+    const badgeWidth = textWidth + padding * 2;
+    const badgeHeight = 26;
+    const badgeX = left + width / 2 - badgeWidth / 2;
+    let badgeY = top - badgeHeight - 4;
+    if (badgeY < 8) {
+        badgeY = top + height + 4;
+    }
+    ctx.fillStyle = 'rgba(0, 170, 255, 0.8)';
+    beginRoundedRectPath(badgeX, badgeY, badgeWidth, badgeHeight, 10);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, badgeX + padding, badgeY + badgeHeight / 2);
+    ctx.restore();
+}
+
+function drawDraggable(d) {
+    const width = d.width;
+    const height = d.height;
+    const left = d.x - width / 2;
+    const top = d.y - height / 2;
+    const texture = getTextureForDraggable(d);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 6;
+    if (texture && texture.complete) {
+        ctx.drawImage(texture, left, top, width, height);
+    } else {
+        const gradient = ctx.createLinearGradient(left, top, left, top + height);
+        gradient.addColorStop(0, '#ffffff');
+        gradient.addColorStop(1, '#d7dee8');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(left, top, width, height);
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.lineWidth = selected && selected.id === d.id ? 4 : 2;
+    ctx.strokeStyle = selected && selected.id === d.id ? '#ffd54f' : 'rgba(0, 0, 0, 0.25)';
+    ctx.strokeRect(left, top, width, height);
+    ctx.restore();
+
+    if (d.type === 'action') {
+        drawActionBadge(d, left, top, width, height);
+    }
+    if (d.type === 'foodGen') {
+        drawFoodPreview(d, left, top, width, height);
+    }
+    if (d.type === 'transferSrc' || d.type === 'transferDst') {
+        drawTransferLabel(d, left, top, width, height);
+    }
+}
+
 function drawCanvas() {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (bg.complete) ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
-    draggables.forEach(d => {
-        const img = textures[d.type];
-        const x = d.x - d.width / 2;
-        const y = d.y - d.height / 2;
-        if (img && img.complete) {
-            ctx.drawImage(img, x, y, d.width, d.height);
-        } else {
-            ctx.fillStyle = 'rgba(255,255,255,0.85)';
-            ctx.fillRect(x, y, d.width, d.height);
-        }
-        ctx.strokeStyle = selected && selected.id === d.id ? '#ffca28' : 'rgba(0,0,0,0.35)';
-        ctx.lineWidth = selected && selected.id === d.id ? 4 : 2;
-        ctx.strokeRect(x, y, d.width, d.height);
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.font = '16px "M PLUS Rounded 1c", sans-serif';
-        const label = typeLabels[d.type] || '';
-        if (label) ctx.fillText(label, x + 6, y + 20);
-    });
-    ctx.lineWidth = 1;
+    drawFloorGrid();
+    drawTransferConnections();
+    const ordered = [...draggables].sort((a, b) => (renderOrder[a.type] ?? 99) - (renderOrder[b.type] ?? 99));
+    ordered.forEach(drawDraggable);
 }
 
 function updateDetailsPanel() {
