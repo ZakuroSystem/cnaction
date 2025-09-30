@@ -145,6 +145,8 @@ def initialize_room(room: str, config: dict = None):
     for z in cfg.pop('bakingZones', []):
         z.update({'action': 'bake', 'display': '焼いている…'})
         cfg['actionZones'].append(z)
+    for zone in cfg.get('actionZones', []):
+        zone.setdefault('occupied', False)
     if isinstance(cfg.get('transferObjects'), str):
         cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
 
@@ -225,6 +227,8 @@ def reset_room():
         return "Room not found", 404
     rs = rooms[room]
     cfg = rs.config
+    for zone in cfg.get('actionZones', []):
+        zone['occupied'] = False
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.score = 0
     rs.gameOver = False
@@ -283,6 +287,8 @@ def on_update_config(data):
     else:
         if isinstance(cfg.get('transferObjects'), str):
             cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
+        for zone in cfg.get('actionZones', []):
+            zone.setdefault('occupied', False)
         rooms[room].config = cfg
         mark_dirty(room)
 
@@ -297,6 +303,8 @@ def on_move(data):
     obs = cfg.get('movingObstacles', []) + cfg.get('staticObstacles', [])
     if not any(in_zone(nx, ny, o) for o in obs):
         p.x, p.y = nx, ny
+        if p.currentItem:
+            p.currentItem.x, p.currentItem.y = nx, ny
     if p.cooking and p.currentZone:
         p.currentZone['occupied'] = False
         p.cooking = False
