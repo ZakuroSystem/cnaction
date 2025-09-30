@@ -19,7 +19,6 @@ document.getElementById('createStage').onclick = () => {
     currentKey = null;
     if (typeof loadDefaultConfig === 'function') {
         loadDefaultConfig();
-        if (typeof updateDetailsPanel === 'function') updateDetailsPanel();
     }
     showEditor();
 };
@@ -33,11 +32,16 @@ document.getElementById('stageTable').addEventListener('click', e => {
             currentKey = key;
             config = data.config;
             document.getElementById('stageName').value = data.meta.name;
-            fillForm();
-            initDraggables();
-            drawCanvas();
-            if(typeof syncConfigJson === 'function') syncConfigJson();
-            if(typeof updateDetailsPanel === 'function') updateDetailsPanel();
+            if (typeof ensureStageConfig === 'function') ensureStageConfig();
+            if (typeof refreshStageEditor === 'function') {
+                refreshStageEditor();
+            } else {
+                fillForm();
+                initDraggables();
+                drawCanvas();
+                if(typeof syncConfigJson === 'function') syncConfigJson();
+                if(typeof updateDetailsPanel === 'function') updateDetailsPanel();
+            }
             showEditor();
         });
 });
