@@ -8,6 +8,7 @@ class GameScene extends Phaser.Scene {
     this.movingObsInitialized = false;
     this.transferGroup = null;
     this.itemOverlay = {}; // 各プレイヤーのアイテムオーバーレイ管理
+    this.orderListEl = null;
   }
   
   preload() {
@@ -64,13 +65,7 @@ class GameScene extends Phaser.Scene {
       });
     }
   
-    // 新規追加: 注文表示用テキスト（画面左上）
-    this.orderText = this.add.text(10, 10, '', {
-      font: '24px Arial',
-      fill: '#ffffff',
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      padding: { x: 10, y: 10 }
-    }).setDepth(9999);
+    this.orderListEl = document.getElementById('order-list');
     // 新規追加: タイマー表示用テキスト（画面右下、原点を右下に合わせる）
     this.timerText = this.add.text(790, 590, '', {
       font: '24px Arial',
@@ -107,11 +102,7 @@ class GameScene extends Phaser.Scene {
       // スコアは既存の DOM 表示をそのままとする（必要であれば Phaser テキストに変更可能）
       document.getElementById('score').textContent = 'スコア: ' + state.score;
   
-      // 注文表示: 画面左上に見やすいように改行区切りで表示
-      let orderStr = "オーダー:\n" + state.orders.map(o => {
-         return `${o.dish}: ${o.remaining}秒`;
-      }).join("\n");
-      this.orderText.setText(orderStr);
+      this.renderOrders(state);
   
       // タイマー表示: 画面右下に更新
       this.timerText.setText('タイマー: ' + state.timer);
@@ -140,7 +131,7 @@ class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.playerSprite, this.staticObsGroup);
     this.physics.add.collider(this.playerSprite, this.movingObsGroup);
   }
-  
+
   updateObjects() {
     if (!this.serverState) return;
     const my = this.serverState.players[window.playerId];
@@ -284,6 +275,54 @@ class GameScene extends Phaser.Scene {
         this.transferGroup.add(dstImg);
       });
     }
+  }
+
+  renderOrders(state) {
+    if (!this.orderListEl) return;
+
+    const listEl = this.orderListEl;
+    const frag = document.createDocumentFragment();
+    const limit = state.config?.orderTimeLimit ?? null;
+
+    state.orders.forEach((order, index) => {
+      const card = document.createElement('div');
+      card.className = 'order-card';
+
+      const name = document.createElement('div');
+      name.className = 'order-card__name';
+      name.textContent = `${index + 1}. ${order.dish}`;
+
+      const timer = document.createElement('div');
+      timer.className = 'order-card__timer';
+
+      const bar = document.createElement('div');
+      bar.className = 'order-card__timer-bar';
+
+      const remaining = Math.max(order.remaining ?? 0, 0);
+      const baseLimit = limit ?? Math.max(remaining, 1);
+      const ratio = baseLimit > 0 ? Math.min(Math.max(remaining / baseLimit, 0), 1) : 0;
+      bar.style.width = `${ratio * 100}%`;
+      if (ratio < 0.34) {
+        bar.style.background = 'linear-gradient(90deg, #ef5350, #e53935)';
+      } else if (ratio < 0.67) {
+        bar.style.background = 'linear-gradient(90deg, #ffa726, #fb8c00)';
+      }
+
+      timer.appendChild(bar);
+
+      const remainingText = document.createElement('div');
+      remainingText.className = 'order-card__remaining';
+      remainingText.textContent = `${remaining}秒`;
+
+      card.appendChild(name);
+      card.appendChild(timer);
+      card.appendChild(remainingText);
+
+      frag.appendChild(card);
+    });
+
+    listEl.innerHTML = '';
+    listEl.appendChild(frag);
   }
   
   update() {

@@ -22,7 +22,74 @@ body {
     border: 2px solid #ff7043;
   }
   
-  #order-status, #timer, #score, #inventory {
+  #orders-panel {
+    margin: 0 auto 10px auto;
+    max-width: 760px;
+    background: #ffe0b2;
+    border: 2px solid #ff7043;
+    border-radius: 8px;
+    padding: 10px 15px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    text-align: left;
+  }
+
+  #orders-panel h3 {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    color: #bf360c;
+  }
+
+  .order-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .order-card {
+    background: #ffffff;
+    border: 1px solid #ffcc80;
+    border-radius: 6px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .order-card__name {
+    font-size: 20px;
+    font-weight: bold;
+    color: #d84315;
+    flex: 1;
+  }
+
+  .order-card__timer {
+    width: 160px;
+    height: 16px;
+    background: #ffe0b2;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .order-card__timer-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #66bb6a, #43a047);
+  }
+
+  .order-card__remaining {
+    font-size: 16px;
+    color: #5d4037;
+    width: 64px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  #timer, #score, #inventory {
     font-size: 24px;
     margin: 5px;
     color: #bf360c;
