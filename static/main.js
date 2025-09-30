@@ -9,6 +9,7 @@ class GameScene extends Phaser.Scene {
     this.transferGroup = null;
     this.itemOverlay = {}; // 各プレイヤーのアイテムオーバーレイ管理
     this.orderListEl = null;
+    this.cookingOverlays = {};
   }
   
   preload() {
@@ -213,7 +214,7 @@ class GameScene extends Phaser.Scene {
   
     this.itemGroup.clear(true, true);
     for (let item of this.serverState.items) {
-      let spr = this.add.sprite(item.x, item.y, item.type).setDisplaySize(96, 96);
+      let spr = this.add.sprite(item.x, item.y, item.type).setDisplaySize(96, 96).setDepth(200);
       this.itemGroup.add(spr);
     }
   
@@ -239,13 +240,28 @@ class GameScene extends Phaser.Scene {
         this.movingObsGroup.add(spr);
       });
     }
-      // 調理場の表示を更新（ゾーン数の変化にも対応するため毎回作り直す）
+    // 調理場の表示を更新（ゾーン数の変化にも対応するため毎回作り直す）
+    const actionZones = this.serverState.config.actionZones || [];
+    const activeCookingKeys = new Set();
     this.actionZoneGroup.clear(true, true);
-    (this.serverState.config.actionZones || []).forEach(z => {
+    actionZones.forEach((z, idx) => {
       let tex = 'cooking_zone1';
       if (z.action === 'bake') tex = 'cooking_zone2';
-      const img = this.add.image(z.x, z.y, tex).setDisplaySize(z.width, z.height);
+      const img = this.add.image(z.x, z.y, tex).setDisplaySize(z.width, z.height).setDepth(40);
       this.actionZoneGroup.add(img);
+
+      const key = `zone-${idx}`;
+      if (z.cooking) {
+        activeCookingKeys.add(key);
+        this.renderCookingOverlay(key, z, z.cooking);
+      } else {
+        this.destroyCookingOverlay(key);
+      }
+    });
+    Object.keys(this.cookingOverlays).forEach(key => {
+      if (!activeCookingKeys.has(key)) {
+        this.destroyCookingOverlay(key);
+      }
     });
     if (this.serverState.config.deliveryZone) {
       let dz = this.serverState.config.deliveryZone;
@@ -357,7 +373,68 @@ class GameScene extends Phaser.Scene {
     listEl.innerHTML = '';
     listEl.appendChild(frag);
   }
-  
+
+  destroyCookingOverlay(key) {
+    const overlay = this.cookingOverlays[key];
+    if (!overlay) return;
+    overlay.sprite.destroy();
+    overlay.gauge.destroy();
+    overlay.label.destroy();
+    delete this.cookingOverlays[key];
+  }
+
+  renderCookingOverlay(key, zone, data) {
+    let overlay = this.cookingOverlays[key];
+    const textureKey = data.texture || data.itemType || data.result_type || 'ingredient_tomato';
+
+    if (!overlay) {
+      const sprite = this.add.sprite(zone.x, zone.y, textureKey)
+        .setDisplaySize(Math.min(96, zone.width * 0.8), Math.min(96, zone.height * 0.8))
+        .setDepth(420);
+      const label = this.add.text(zone.x, zone.y - zone.height / 2 - 8, data.displayText || '調理中…', {
+        font: '16px "Noto Sans JP", sans-serif',
+        fill: '#ffffff',
+        backgroundColor: 'rgba(0, 0, 0, 0.65)',
+        padding: { x: 8, y: 4 },
+        align: 'center'
+      }).setOrigin(0.5, 1).setDepth(421);
+      const gauge = this.add.graphics().setDepth(421);
+      overlay = { sprite, label, gauge };
+      this.cookingOverlays[key] = overlay;
+    }
+
+    if (textureKey && overlay.sprite.texture.key !== textureKey) {
+      overlay.sprite.setTexture(textureKey);
+    }
+    overlay.sprite.setPosition(zone.x, zone.y);
+    overlay.sprite.setDisplaySize(Math.min(96, zone.width * 0.8), Math.min(96, zone.height * 0.8));
+
+    const labelText = data.displayText || '調理中…';
+    overlay.label.setText(labelText);
+    overlay.label.setPosition(zone.x, zone.y - zone.height / 2 - 8);
+
+    const barWidth = Math.min(zone.width * 0.8, 180);
+    const barX = zone.x - barWidth / 2;
+    const barY = zone.y + zone.height / 2 + 16;
+    const progress = Phaser.Math.Clamp(data.progress ?? 0, 0, 1);
+
+    overlay.gauge.clear();
+    overlay.gauge.fillStyle(0x000000, 0.65);
+    overlay.gauge.fillRoundedRect(barX, barY, barWidth, 12, 6);
+
+    const innerWidth = Math.max(barWidth * progress - 4, 0);
+    if (innerWidth > 0) {
+      let color = 0x4caf50;
+      if (progress < 0.34) {
+        color = 0xef5350;
+      } else if (progress < 0.67) {
+        color = 0xffb74d;
+      }
+      overlay.gauge.fillStyle(color, 0.9);
+      overlay.gauge.fillRoundedRect(barX + 2, barY + 2, innerWidth, 8, 4);
+    }
+  }
+
   update() {
     if (this.inventoryText && this.inventoryText.visible) {
       this.inventoryText.setPosition(this.playerSprite.x, this.playerSprite.y - 60);
