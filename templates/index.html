@@ -2,6 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1, viewport-fit=cover"
+/>
 <title>Connect Action</title>
 
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
@@ -10,15 +14,24 @@
 </head>
 <body>
   <div id="start-overlay">
-    <h2>ゲーム開始</h2>
-    <label>ルーム名: <input type="text" id="roomName" value="room1" /></label><br />
+    <h1>ゲーム開始</h1>
+    <label class="form-field">
+      <span class="form-field__label">ルーム名</span>
+      <input
+        type="text"
+        id="roomName"
+        value="room1"
+        inputmode="latin"
+        autocomplete="off"
+      />
+    </label>
     <img
       id="startButton"
       src="/static/assets/start_button.png"
       alt="スタート"
-      style="cursor: pointer"
+      class="start-button"
     />
-    <p><a href="/editor">設定モードへ</a></p>
+    <p class="start-overlay__link"><a href="/editor">設定モードへ</a></p>
   </div>
 
   <div id="game-container" style="display: none"></div>
@@ -30,6 +43,43 @@
     <div id="timer">タイマー: 60</div>
     <div id="score">スコア: 0</div>
     <div id="inventory">持ち物: なし</div>
+    <div id="mobile-controls" class="mobile-controls" aria-hidden="true">
+      <div class="mobile-controls__cluster mobile-controls__cluster--dpad">
+        <button
+          type="button"
+          class="mobile-controls__button mobile-controls__button--up"
+          data-action="up"
+          aria-label="上に移動"
+        >▲</button>
+        <div></div>
+        <button
+          type="button"
+          class="mobile-controls__button mobile-controls__button--right"
+          data-action="right"
+          aria-label="右に移動"
+        >▶</button>
+        <button
+          type="button"
+          class="mobile-controls__button mobile-controls__button--left"
+          data-action="left"
+          aria-label="左に移動"
+        >◀</button>
+        <div></div>
+        <button
+          type="button"
+          class="mobile-controls__button mobile-controls__button--down"
+          data-action="down"
+          aria-label="下に移動"
+        >▼</button>
+      </div>
+      <div class="mobile-controls__cluster mobile-controls__cluster--action">
+        <button
+          type="button"
+          class="mobile-controls__button mobile-controls__button--action"
+          data-action="interact"
+        >アクション</button>
+      </div>
+    </div>
   </div>
 
   <script>

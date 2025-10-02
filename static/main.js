@@ -59,6 +59,120 @@ class AssetCache {
   }
 }
 
+class MobileControls {
+  constructor(game) {
+    this.game = game;
+    this.container = document.getElementById('mobile-controls');
+    this.handlers = [];
+    this.boundUpdateVisibility = this.updateVisibility.bind(this);
+    this.mediaQuery = window.matchMedia ? window.matchMedia('(max-width: 900px)') : null;
+
+    if (!this.container) {
+      return;
+    }
+
+    window.addEventListener('resize', this.boundUpdateVisibility);
+    window.addEventListener('orientationchange', this.boundUpdateVisibility);
+    if (this.mediaQuery) {
+      if (this.mediaQuery.addEventListener) {
+        this.mediaQuery.addEventListener('change', this.boundUpdateVisibility);
+      } else if (this.mediaQuery.addListener) {
+        this.mediaQuery.addListener(this.boundUpdateVisibility);
+      }
+    }
+
+    this.bindButtons();
+    this.updateVisibility();
+  }
+
+  bindButtons() {
+    this.bindMovement('up', ['ArrowUp', 'KeyW']);
+    this.bindMovement('down', ['ArrowDown', 'KeyS']);
+    this.bindMovement('left', ['ArrowLeft', 'KeyA']);
+    this.bindMovement('right', ['ArrowRight', 'KeyD']);
+
+    const interact = this.container?.querySelector('[data-action="interact"]');
+    if (interact) {
+      const onDown = (event) => {
+        event.preventDefault();
+        interact.classList.add('is-active');
+        this.game.emitInteract();
+      };
+      const onUp = (event) => {
+        event.preventDefault();
+        interact.classList.remove('is-active');
+      };
+      this.addListener(interact, 'pointerdown', onDown, { passive: false });
+      ['pointerup', 'pointerleave', 'pointercancel', 'pointerout'].forEach((type) => {
+        this.addListener(interact, type, onUp, { passive: false });
+      });
+    }
+  }
+
+  bindMovement(action, keyCodes) {
+    const button = this.container?.querySelector(`[data-action="${action}"]`);
+    if (!button) return;
+
+    const onDown = (event) => {
+      event.preventDefault();
+      button.classList.add('is-active');
+      keyCodes.forEach((code) => this.game.setKeyState(code, true));
+    };
+    const onUp = (event) => {
+      event.preventDefault();
+      button.classList.remove('is-active');
+      keyCodes.forEach((code) => this.game.setKeyState(code, false));
+    };
+
+    this.addListener(button, 'pointerdown', onDown, { passive: false });
+    ['pointerup', 'pointerleave', 'pointercancel', 'pointerout'].forEach((type) => {
+      this.addListener(button, type, onUp, { passive: false });
+    });
+  }
+
+  addListener(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    this.handlers.push({ target, type, handler, options });
+  }
+
+  updateVisibility() {
+    if (!this.container) return;
+    const coarsePointer = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
+    const narrowScreen = window.innerWidth <= 900;
+    const shouldShow = coarsePointer || narrowScreen;
+
+    if (shouldShow) {
+      this.container.classList.add('mobile-controls--visible');
+      this.container.setAttribute('aria-hidden', 'false');
+    } else {
+      this.container.classList.remove('mobile-controls--visible');
+      this.container.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  destroy() {
+    this.handlers.forEach(({ target, type, handler, options }) => {
+      target.removeEventListener(type, handler, options);
+    });
+    this.handlers = [];
+
+    window.removeEventListener('resize', this.boundUpdateVisibility);
+    window.removeEventListener('orientationchange', this.boundUpdateVisibility);
+    if (this.mediaQuery) {
+      if (this.mediaQuery.removeEventListener) {
+        this.mediaQuery.removeEventListener('change', this.boundUpdateVisibility);
+      } else if (this.mediaQuery.removeListener) {
+        this.mediaQuery.removeListener(this.boundUpdateVisibility);
+      }
+    }
+
+    if (this.container) {
+      this.container.classList.remove('mobile-controls--visible');
+      this.container.setAttribute('aria-hidden', 'true');
+    }
+  }
+}
+
 class GameClient {
   constructor(container) {
     this.container = container;
@@ -89,6 +203,8 @@ class GameClient {
     this.boundVisibilityChange = this.handleVisibilityChange.bind(this);
     this.boundStateUpdate = this.handleStateUpdate.bind(this);
     this.boundForceDisconnect = this.handleForceDisconnect.bind(this);
+
+    this.mobileControls = new MobileControls(this);
   }
 
   start() {
@@ -117,6 +233,10 @@ class GameClient {
     document.removeEventListener('visibilitychange', this.boundVisibilityChange);
     socket.off('state_update', this.boundStateUpdate);
     socket.off('force_disconnect', this.boundForceDisconnect);
+    if (this.mobileControls) {
+      this.mobileControls.destroy();
+      this.mobileControls = null;
+    }
   }
 
   loop(timestamp) {
@@ -270,7 +390,7 @@ class GameClient {
     }
 
     if (this.isMovementKey(event.code)) {
-      this.keyState[event.code] = true;
+      this.setKeyState(event.code, true);
       event.preventDefault();
     }
   }
@@ -282,7 +402,7 @@ class GameClient {
       return;
     }
     if (this.isMovementKey(event.code)) {
-      this.keyState[event.code] = false;
+      this.setKeyState(event.code, false);
       event.preventDefault();
     }
   }
@@ -295,6 +415,15 @@ class GameClient {
 
   isMovementKey(code) {
     return code === 'ArrowLeft' || code === 'ArrowRight' || code === 'ArrowUp' || code === 'ArrowDown' || code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD';
+  }
+
+  setKeyState(code, pressed) {
+    if (!code) return;
+    if (pressed) {
+      this.keyState[code] = true;
+    } else {
+      this.keyState[code] = false;
+    }
   }
 
   emitInteract() {
