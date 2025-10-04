@@ -379,13 +379,15 @@ def on_move(data):
     if room not in rooms or pid not in rooms[room].players:
         return
     p = rooms[room].players[pid]
-    nx, ny = data.get('x'), data.get('y')
-    cfg = rooms[room].config
-    obs = cfg.get('movingObstacles', []) + cfg.get('staticObstacles', [])
-    if not any(in_zone(nx, ny, o) for o in obs):
-        p.x, p.y = nx, ny
-        if p.currentItem:
-            p.currentItem.x, p.currentItem.y = nx, ny
+    try:
+        nx = float(data.get('x'))
+        ny = float(data.get('y'))
+    except (TypeError, ValueError):
+        return
+
+    p.x, p.y = nx, ny
+    if p.currentItem:
+        p.currentItem.x, p.currentItem.y = nx, ny
     mark_dirty(room)
 
 @socketio.on('interact')
