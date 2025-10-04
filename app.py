@@ -154,6 +154,7 @@ def flush_dirty():
             dirty_flags.pop(room, None)
             continue
         state = asdict(rooms[room])
+        state['serverTime'] = time.time()
         socketio.emit('state_update', state, room=room)
         dirty_flags.pop(room, None)
 
