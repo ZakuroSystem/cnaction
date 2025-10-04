@@ -12,6 +12,9 @@ export class UIManager {
     this.orderListEl = orderListEl || null;
     this.gameOverMessageEl = gameOverMessageEl || null;
     this.orderCards = [];
+    this.lastTimerValue = null;
+    this.lastScoreValue = null;
+    this.lastInventoryLabel = null;
   }
 
   update(state, playerId) {
@@ -32,11 +35,19 @@ export class UIManager {
   updateTimer(value) {
     if (!this.timerEl) return;
     const numeric = Math.max(0, Math.floor(value));
+    if (this.lastTimerValue === numeric) {
+      return;
+    }
+    this.lastTimerValue = numeric;
     this.timerEl.textContent = `タイマー: ${numeric}`;
   }
 
   updateScore(value) {
     if (!this.scoreEl) return;
+    if (this.lastScoreValue === value) {
+      return;
+    }
+    this.lastScoreValue = value;
     this.scoreEl.textContent = `スコア: ${value}`;
   }
 
@@ -53,8 +64,17 @@ export class UIManager {
           ? '調理済み'
           : item.state;
       const display = item.display || `${item.type} (${stateLabel})`;
-      this.inventoryEl.textContent = `持ち物: ${display}`;
+      const label = `持ち物: ${display}`;
+      if (label === this.lastInventoryLabel) {
+        return;
+      }
+      this.lastInventoryLabel = label;
+      this.inventoryEl.textContent = label;
     } else {
+      if (this.lastInventoryLabel === '持ち物: なし') {
+        return;
+      }
+      this.lastInventoryLabel = '持ち物: なし';
       this.inventoryEl.textContent = '持ち物: なし';
     }
   }
@@ -73,25 +93,36 @@ export class UIManager {
       if (!card) return;
 
       const dish = order.dish || '???';
-      card.name.textContent = `${index + 1}. ${dish}`;
-      card.name.title = dish;
+      const label = `${index + 1}. ${dish}`;
+      if (card.lastLabel !== label) {
+        card.name.textContent = label;
+        card.name.title = dish;
+        card.lastLabel = label;
+      }
 
       const remaining = Math.max(order.remaining ?? 0, 0);
       const baseLimit = limit ?? Math.max(remaining, 1);
       const ratio = baseLimit > 0 ? Math.min(Math.max(remaining / baseLimit, 0), 1) : 0;
-      card.bar.style.width = `${ratio * 100}%`;
-      if (ratio < 0.34) {
-        card.bar.style.background = 'linear-gradient(90deg, #ef5350, #e53935)';
-      } else if (ratio < 0.67) {
-        card.bar.style.background = 'linear-gradient(90deg, #ffa726, #fb8c00)';
-      } else {
-        card.bar.style.background = '';
+      if (Math.abs(ratio - card.lastRatio) > 0.01 || card.lastRatio === null) {
+        card.bar.style.width = `${ratio * 100}%`;
+        if (ratio < 0.34) {
+          card.bar.style.background = 'linear-gradient(90deg, #ef5350, #e53935)';
+        } else if (ratio < 0.67) {
+          card.bar.style.background = 'linear-gradient(90deg, #ffa726, #fb8c00)';
+        } else {
+          card.bar.style.background = '';
+        }
+        card.lastRatio = ratio;
       }
 
-      card.timer.setAttribute('aria-valuemin', '0');
-      card.timer.setAttribute('aria-valuemax', baseLimit.toString());
-      card.timer.setAttribute('aria-valuenow', remaining.toString());
-      card.timer.setAttribute('aria-label', `${dish} 残り ${remaining} 秒`);
+      if (card.lastRemaining !== remaining || card.lastBaseLimit !== baseLimit) {
+        card.timer.setAttribute('aria-valuemin', '0');
+        card.timer.setAttribute('aria-valuemax', baseLimit.toString());
+        card.timer.setAttribute('aria-valuenow', remaining.toString());
+        card.timer.setAttribute('aria-label', `${dish} 残り ${remaining} 秒`);
+        card.lastRemaining = remaining;
+        card.lastBaseLimit = baseLimit;
+      }
     });
   }
 
@@ -192,7 +223,17 @@ export class UIManager {
     element.appendChild(thumb);
     element.appendChild(details);
 
-    return { element, name, timer, bar, signature: this.signatureForOrder(order) };
+    return {
+      element,
+      name,
+      timer,
+      bar,
+      signature: this.signatureForOrder(order),
+      lastLabel: name.textContent,
+      lastRatio: null,
+      lastRemaining: null,
+      lastBaseLimit: null,
+    };
   }
 
   signatureForOrder(order) {

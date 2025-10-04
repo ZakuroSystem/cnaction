@@ -33,6 +33,9 @@ export class GameClient {
     this.lastFrame = performance.now();
     this.lastMoveSent = 0;
     this.frameHandle = null;
+    this.pendingUiState = null;
+    this.uiSyncInterval = 1 / 15;
+    this.uiSyncAccumulator = 0;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -69,6 +72,8 @@ export class GameClient {
     document.removeEventListener('visibilitychange', this.boundVisibilityChange);
     this.socket.off('state_update', this.boundStateUpdate);
     this.socket.off('force_disconnect', this.boundForceDisconnect);
+    this.pendingUiState = null;
+    this.uiSyncAccumulator = 0;
     if (this.mobileControls) {
       this.mobileControls.destroy();
       this.mobileControls = null;
@@ -98,7 +103,8 @@ export class GameClient {
       }
     }
 
-    this.ui.update(state, window.playerId);
+    this.pendingUiState = state;
+    this.uiSyncAccumulator = this.uiSyncInterval;
   }
 
   handleForceDisconnect() {
@@ -172,6 +178,8 @@ export class GameClient {
   }
 
   update(dt) {
+    this.flushPendingUi(dt);
+
     if (!this.serverState || !window.playerId) return;
     const me = this.serverState.players?.[window.playerId];
     if (!me) return;
@@ -210,9 +218,26 @@ export class GameClient {
         });
       }
     }
+
   }
 
   render() {
     this.renderer.render(this.serverState, window.playerId);
+  }
+
+  flushPendingUi(dt) {
+    if (!this.pendingUiState) {
+      this.uiSyncAccumulator = 0;
+      return;
+    }
+
+    this.uiSyncAccumulator += dt;
+    if (this.uiSyncAccumulator < this.uiSyncInterval) {
+      return;
+    }
+
+    this.ui.update(this.pendingUiState, window.playerId);
+    this.pendingUiState = null;
+    this.uiSyncAccumulator = 0;
   }
 }
