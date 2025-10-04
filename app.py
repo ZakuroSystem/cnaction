@@ -246,9 +246,7 @@ def upload_image():
 # ─────────────────────────────────────────
 @bp.route('/')
 def index():
-    return render_template(
-        'index.html', main_js_version=_static_mtime('game/native-main.js')
-    )
+    return render_template('index.html', main_js_version=_static_mtime('main.js'))
 
 @bp.route('/editor')
 def editor():
