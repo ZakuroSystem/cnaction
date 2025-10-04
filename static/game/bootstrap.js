@@ -1,4 +1,4 @@
-import { GameClient } from './game/game-client.js';
+import { GameClient } from './game-client.js';
 
 const socket = io();
 let gameClient = null;
@@ -7,6 +7,25 @@ function ensureDefaults() {
   if (!window.roomName) {
     window.roomName = 'room1';
   }
+}
+
+function disposeClient(expected) {
+  if (window.gameClient === expected) {
+    window.gameClient = null;
+  }
+  if (gameClient === expected) {
+    gameClient = null;
+  }
+}
+
+function setupClient(container, socketInstance) {
+  const nextClient = new GameClient(container, socketInstance, () => {
+    disposeClient(nextClient);
+  });
+
+  gameClient = nextClient;
+  window.gameClient = nextClient;
+  nextClient.start();
 }
 
 window.startGame = function startGame() {
@@ -29,18 +48,7 @@ window.startGame = function startGame() {
     window.gameClient.destroy();
   }
 
-  const nextClient = new GameClient(container, socket, () => {
-    if (window.gameClient === nextClient) {
-      window.gameClient = null;
-    }
-    if (gameClient === nextClient) {
-      gameClient = null;
-    }
-  });
-
-  gameClient = nextClient;
-  window.gameClient = nextClient;
-  nextClient.start();
+  setupClient(container, socket);
 };
 
 function bindStartButton() {

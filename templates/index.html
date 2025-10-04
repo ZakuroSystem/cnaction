@@ -10,7 +10,10 @@
 
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
 <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-<script type="module" src="{{ url_for('static', filename='main.js') }}"></script>
+<script
+  type="module"
+  src="{{ url_for('static', filename='game/bootstrap.js') }}"
+></script>
 </head>
 <body>
   <div id="start-overlay">
