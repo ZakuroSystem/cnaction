@@ -27,6 +27,16 @@ app.config['SECRET_KEY'] = 'secret!'
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+
+def _static_mtime(path: str) -> int:
+    """Return the last modified timestamp for a static asset."""
+    try:
+        return int(os.path.getmtime(os.path.join(app.static_folder, path)))
+    except OSError:
+        # Fallback to current time so cache busting still occurs if the file is
+        # missing during development.
+        return int(time.time())
+
 # ─────────────────────────────────────────
 # Blueprint 登録
 # ─────────────────────────────────────────
@@ -236,7 +246,7 @@ def upload_image():
 # ─────────────────────────────────────────
 @bp.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', main_js_version=_static_mtime('main.js'))
 
 @bp.route('/editor')
 def editor():
