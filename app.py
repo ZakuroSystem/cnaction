@@ -24,6 +24,7 @@ from models import Item, Player, RoomState
 # ─────────────────────────────────────────
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config['SECRET_KEY'] = 'secret!'
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # ─────────────────────────────────────────
