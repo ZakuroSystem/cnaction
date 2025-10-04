@@ -150,6 +150,18 @@ body {
   font-weight: bold;
 }
 
+.game-over {
+  margin: 16px auto 0;
+  max-width: 480px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #ffe082, #ffd54f);
+  border: 2px solid #ff7043;
+  border-radius: 12px;
+  font-size: clamp(18px, 3vw, 24px);
+  font-weight: bold;
+  color: #bf360c;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
 
 #start-overlay {
   width: min(90%, 420px);

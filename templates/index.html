@@ -10,7 +10,7 @@
 
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
 <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-<script src="{{ url_for('static', filename='main.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='main.js') }}"></script>
 </head>
 <body>
   <div id="start-overlay">
@@ -43,6 +43,12 @@
     <div id="timer">タイマー: 60</div>
     <div id="score">スコア: 0</div>
     <div id="inventory">持ち物: なし</div>
+    <div
+      id="game-over-message"
+      class="game-over hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
     <div id="mobile-controls" class="mobile-controls" aria-hidden="true">
       <div class="mobile-controls__surface mobile-controls__surface--move">
         <div
@@ -91,24 +97,5 @@
     </div>
   </div>
 
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      document
-        .getElementById("startButton")
-        .addEventListener("click", () => {
-          window.roomName =
-            document.getElementById("roomName").value || "room1";
-          window.playerId = ""; // サーバ側で自動採番
-          document.getElementById("start-overlay").style.display = "none";
-          document.getElementById("game-container").style.display = "block";
-          document.getElementById("ui").style.display = "block";
-
-          // 画面表示を切り替えたあとにゲームを起動
-          if (window.startGame) {
-            window.startGame();
-          }
-        });
-    });
-  </script>
 </body>
 </html>
