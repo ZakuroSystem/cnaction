@@ -396,8 +396,23 @@ def on_interact(data):
     if room not in rooms or pid not in rooms[room].players:
         return
     rs, p = rooms[room], rooms[room].players[pid]
-    x, y = p.x, p.y
     cfg = rs.config
+
+    x, y = p.x, p.y
+    position_updated = False
+    if 'x' in data and 'y' in data:
+        try:
+            nx = float(data.get('x'))
+            ny = float(data.get('y'))
+        except (TypeError, ValueError):
+            nx = None
+            ny = None
+        if nx is not None and ny is not None:
+            x, y = nx, ny
+            p.x, p.y = nx, ny
+            if p.currentItem:
+                p.currentItem.x, p.currentItem.y = nx, ny
+            position_updated = True
 
     # アイテム取得 or 生成
     if p.currentItem is None:
@@ -419,6 +434,8 @@ def on_interact(data):
                 fg['nextFood'] = random.choice(list(cfg['orderMapping']))
                 mark_dirty(room)
                 return
+        if position_updated:
+            mark_dirty(room)
         return
 
     # 調理ステップ

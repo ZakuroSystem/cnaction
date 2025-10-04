@@ -178,7 +178,24 @@ export class GameClient {
 
   emitInteract() {
     if (!window.roomName || !window.playerId) return;
-    this.socket.emit('interact', { room: window.roomName, playerId: window.playerId });
+    const payload = {
+      room: window.roomName,
+      playerId: window.playerId,
+    };
+
+    const local = this.localPosition;
+    if (local && Number.isFinite(local.x) && Number.isFinite(local.y)) {
+      payload.x = local.x;
+      payload.y = local.y;
+    } else if (this.serverState?.players?.[window.playerId]) {
+      const serverPlayer = this.serverState.players[window.playerId];
+      if (Number.isFinite(serverPlayer.x) && Number.isFinite(serverPlayer.y)) {
+        payload.x = serverPlayer.x;
+        payload.y = serverPlayer.y;
+      }
+    }
+
+    this.socket.emit('interact', payload);
   }
 
   update(dt) {
