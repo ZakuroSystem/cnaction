@@ -14,10 +14,13 @@ export class Renderer {
     this.renderBackground();
     if (!state) return;
 
-    this.renderTransfers(state.config?.transferObjects || []);
+    this.renderStaticObstacles(state.config?.staticObstacles || []);
+    this.renderMovingObstacles(state.config?.movingObstacles || []);
+    this.renderFoodGenerators(state.config?.foodGenerators || []);
+    this.renderTransferPads(state.config?.transferObjects || []);
     this.renderActionZones(state.config?.actionZones || []);
     this.renderDeliveryZone(state.config?.deliveryZone);
-    this.renderFoodGenerators(state.config?.foodGenerators || []);
+    this.renderTransfers(state.config?.transferObjects || []);
     this.renderItems(state.items || []);
     this.renderPlayers(state.players || {}, playerId);
     this.renderCookingOverlays(state.config?.actionZones || []);
@@ -33,64 +36,70 @@ export class Renderer {
     }
   }
 
-  renderTransfers(transfers) {
-    transfers.forEach((tr) => {
-      const src = tr.sourceZone;
-      const dst = tr.destination;
-      if (!src || !dst) return;
-      this.ctx.save();
-      this.ctx.setLineDash([6, 6]);
-      this.ctx.strokeStyle = '#4dd0e1';
-      this.ctx.lineWidth = 2;
-      this.ctx.strokeRect(
-        src.x - src.width / 2,
-        src.y - src.height / 2,
-        src.width,
-        src.height
-      );
-      this.ctx.strokeRect(
-        dst.x - dst.width / 2,
-        dst.y - dst.height / 2,
-        dst.width,
-        dst.height
-      );
-      this.ctx.restore();
-    });
+  textureForAction(action) {
+    switch (action) {
+      case 'cut':
+        return 'action_cut';
+      case 'mix':
+        return 'action_mix';
+      case 'bake':
+      case 'fry':
+      case 'grill':
+      case 'boil':
+        return 'action_bake';
+      default:
+        return 'action_default';
+    }
   }
 
-  renderActionZones(zones) {
-    zones.forEach((zone) => {
-      this.ctx.save();
-      const fill =
-        zone.action === 'bake'
-          ? 'rgba(255, 183, 77, 0.35)'
-          : 'rgba(129, 212, 250, 0.35)';
-      const stroke = zone.occupied ? '#ff7043' : '#4dd0e1';
-      this.ctx.fillStyle = fill;
-      this.ctx.strokeStyle = stroke;
-      this.ctx.lineWidth = 2;
-      this.ctx.fillRect(
-        zone.x - zone.width / 2,
-        zone.y - zone.height / 2,
-        zone.width,
-        zone.height
-      );
-      this.ctx.strokeRect(
-        zone.x - zone.width / 2,
-        zone.y - zone.height / 2,
-        zone.width,
-        zone.height
-      );
-      this.ctx.restore();
-    });
+  drawZoneTexture(zone, textureKey, options = {}) {
+    if (!zone || !textureKey) return false;
+    const img = this.assets.get(textureKey);
+    if (!img || !img.complete || img.naturalWidth === 0) {
+      return false;
+    }
+
+    const padding = options.padding || 0;
+    const alpha = options.alpha ?? 1;
+    const left = zone.x - zone.width / 2 + padding;
+    const top = zone.y - zone.height / 2 + padding;
+    const width = zone.width - padding * 2;
+    const height = zone.height - padding * 2;
+
+    if (width <= 0 || height <= 0) {
+      return false;
+    }
+
+    this.ctx.save();
+    if (alpha < 1) {
+      this.ctx.globalAlpha = alpha;
+    }
+    this.ctx.drawImage(img, left, top, width, height);
+    this.ctx.restore();
+    return true;
   }
 
-  renderDeliveryZone(zone) {
+  fillZone(zone, color) {
     if (!zone) return;
     this.ctx.save();
-    this.ctx.strokeStyle = '#ffca28';
-    this.ctx.setLineDash([8, 4]);
-    this.ctx.lineWidth = 3;
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(
+      zone.x - zone.width / 2,
+      zone.y - zone.height / 2,
+      zone.width,
+      zone.height
+    );
+    this.ctx.restore();
+  }
+
+  strokeZone(zone, { color = '#ffffff', dash = null, width = 2 } = {}) {
+    if (!zone) return;
+    this.ctx.save();
+    this.ctx.strokeStyle = color;
+    this.ctx.lineWidth = width;
+    if (dash && Array.isArray(dash)) {
+      this.ctx.setLineDash(dash);
+    }
     this.ctx.strokeRect(
       zone.x - zone.width / 2,
       zone.y - zone.height / 2,
@@ -100,25 +109,55 @@ export class Renderer {
     this.ctx.restore();
   }
 
+  renderTransfers(transfers) {
+    transfers.forEach((tr) => {
+      const src = tr.sourceZone;
+      const dst = tr.destination;
+      if (!src || !dst) return;
+      this.ctx.save();
+      this.ctx.setLineDash([6, 6]);
+      this.ctx.strokeStyle = '#4dd0e1';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.moveTo(src.x, src.y);
+      this.ctx.lineTo(dst.x, dst.y);
+      this.ctx.stroke();
+      this.ctx.restore();
+    });
+  }
+
+  renderActionZones(zones) {
+    zones.forEach((zone) => {
+      const textureKey = zone.texture || this.textureForAction(zone.action);
+      const drawn = this.drawZoneTexture(zone, textureKey);
+      if (!drawn) {
+        const fill =
+          zone.action === 'bake'
+            ? 'rgba(255, 183, 77, 0.35)'
+            : 'rgba(129, 212, 250, 0.35)';
+        this.fillZone(zone, fill);
+      }
+      const stroke = zone.occupied ? '#ff7043' : '#4dd0e1';
+      this.strokeZone(zone, { color: stroke, width: 2 });
+    });
+  }
+
+  renderDeliveryZone(zone) {
+    if (!zone) return;
+    const drawn = this.drawZoneTexture(zone, zone.texture || 'delivery_zone');
+    if (!drawn) {
+      this.fillZone(zone, 'rgba(255, 202, 64, 0.28)');
+    }
+    this.strokeZone(zone, { color: '#ffca28', dash: [8, 4], width: 3 });
+  }
+
   renderFoodGenerators(generators) {
     generators.forEach((fg) => {
-      this.ctx.save();
-      this.ctx.fillStyle = 'rgba(129, 199, 132, 0.35)';
-      this.ctx.strokeStyle = '#66bb6a';
-      this.ctx.lineWidth = 2;
-      this.ctx.fillRect(
-        fg.x - fg.width / 2,
-        fg.y - fg.height / 2,
-        fg.width,
-        fg.height
-      );
-      this.ctx.strokeRect(
-        fg.x - fg.width / 2,
-        fg.y - fg.height / 2,
-        fg.width,
-        fg.height
-      );
-      this.ctx.restore();
+      const drawn = this.drawZoneTexture(fg, fg.texture || 'food_generator');
+      if (!drawn) {
+        this.fillZone(fg, 'rgba(129, 199, 132, 0.35)');
+      }
+      this.strokeZone(fg, { color: '#66bb6a', width: 2 });
 
       const img = this.assets.get(fg.nextFood);
       if (img && img.complete && img.naturalWidth > 0) {
@@ -131,6 +170,60 @@ export class Renderer {
           Math.min(fg.width, fg.height, 60) / 2,
           '#66bb6a'
         );
+      }
+    });
+  }
+
+  renderStaticObstacles(obstacles) {
+    obstacles.forEach((ob) => {
+      const drawn = this.drawZoneTexture(ob, ob.texture || 'static_obstacle');
+      if (!drawn) {
+        this.fillZone(ob, 'rgba(120, 144, 156, 0.5)');
+      }
+      this.strokeZone(ob, { color: 'rgba(55, 71, 79, 0.6)', width: 2 });
+    });
+  }
+
+  renderMovingObstacles(obstacles) {
+    obstacles.forEach((ob) => {
+      const drawn = this.drawZoneTexture(ob, ob.texture || 'moving_obstacle');
+      if (!drawn) {
+        this.fillZone(ob, 'rgba(38, 166, 154, 0.45)');
+      }
+      this.strokeZone(ob, { color: 'rgba(0, 150, 136, 0.75)', width: 2 });
+    });
+  }
+
+  renderTransferPads(transfers) {
+    transfers.forEach((tr) => {
+      if (!tr) return;
+      if (tr.sourceZone) {
+        const drawn = this.drawZoneTexture(
+          tr.sourceZone,
+          tr.sourceZone.texture || 'transferSrc'
+        );
+        if (!drawn) {
+          this.fillZone(tr.sourceZone, 'rgba(77, 208, 225, 0.35)');
+        }
+        this.strokeZone(tr.sourceZone, {
+          color: 'rgba(77, 208, 225, 0.9)',
+          dash: [10, 6],
+          width: 2,
+        });
+      }
+      if (tr.destination) {
+        const drawn = this.drawZoneTexture(
+          tr.destination,
+          tr.destination.texture || 'transferDst'
+        );
+        if (!drawn) {
+          this.fillZone(tr.destination, 'rgba(3, 169, 244, 0.35)');
+        }
+        this.strokeZone(tr.destination, {
+          color: 'rgba(3, 169, 244, 0.9)',
+          dash: [10, 6],
+          width: 2,
+        });
       }
     });
   }

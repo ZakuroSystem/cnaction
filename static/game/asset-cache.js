@@ -51,10 +51,23 @@ export class AssetCache {
 
     const table = {
       background: '/static/assets/background/kitchen.png',
+      action_default: '/static/assets/cooking_zone1.png',
+      action_cut: '/static/assets/cooking_zone1.png',
+      action_mix: '/static/assets/cooking_zone1.png',
+      action_bake: '/static/assets/cooking_zone2.png',
+      action_fry: '/static/assets/cooking_zone2.png',
+      action_grill: '/static/assets/cooking_zone2.png',
+      action_boil: '/static/assets/cooking_zone2.png',
       delivery_zone: '/static/assets/delivery_zone.png',
+      delivery: '/static/assets/delivery_zone.png',
       food_generator: '/static/assets/food_generator.png',
+      foodGen: '/static/assets/food_generator.png',
+      moving_obstacle: '/static/assets/obstacle/obstacle2.png',
+      static_obstacle: '/static/assets/obstacle/obstacle1.png',
       sourceImage: '/static/assets/sourceImage.png',
       destinationImage: '/static/assets/destinationImage.png',
+      transferSrc: '/static/assets/sourceImage.png',
+      transferDst: '/static/assets/destinationImage.png',
     };
 
     if (table[key]) {
