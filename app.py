@@ -3,6 +3,7 @@ import time
 import random
 import uuid
 from dataclasses import asdict
+from threading import Lock
 from typing import Dict
 import json
 
@@ -127,20 +128,42 @@ def infer_state(action: str, fallback: str) -> str:
 # ─────────────────────────────────────────
 # ユーティリティ関数
 # ─────────────────────────────────────────
+_flush_lock = Lock()
+_flush_pending = False
+
+
 def mark_dirty(room: str):
     dirty_flags[room] = True
+    schedule_flush()
+
 
 def flush_dirty():
     for room in list(dirty_flags.keys()):
+        if room not in rooms:
+            dirty_flags.pop(room, None)
+            continue
         state = asdict(rooms[room])
         socketio.emit('state_update', state, room=room)
         dirty_flags.pop(room, None)
 
-def coalesce_broadcast_loop():
-    BROADCAST_INTERVAL = 1/30  # 30 FPS
-    while True:
-        socketio.sleep(BROADCAST_INTERVAL)
-        flush_dirty()
+
+def schedule_flush(delay: float = 1 / 30):
+    global _flush_pending
+    with _flush_lock:
+        if _flush_pending:
+            return
+        _flush_pending = True
+
+    def runner():
+        global _flush_pending
+        try:
+            socketio.sleep(delay)
+            flush_dirty()
+        finally:
+            with _flush_lock:
+                _flush_pending = False
+
+    socketio.start_background_task(runner)
 
 def in_zone(x: float, y: float, zone: dict) -> bool:
     return (
@@ -449,7 +472,6 @@ def on_interact(data):
 # ゲームタイマー起動
 # ─────────────────────────────────────────
 app.register_blueprint(bp)
-socketio.start_background_task(coalesce_broadcast_loop)
 def game_timer_task():
     while True:
         socketio.sleep(1)
