@@ -201,17 +201,44 @@ body {
   font-size: 16px;
 }
 
+
 .mobile-controls {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+  transform: translateX(-50%);
+  width: min(100%, 780px);
+  padding: 0 clamp(12px, 4vw, 32px);
   display: none;
-  margin-top: 24px;
-  gap: 24px;
-  justify-content: center;
-  flex-wrap: wrap;
-  touch-action: none;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: clamp(16px, 6vw, 48px);
+  pointer-events: none;
+  z-index: 20;
 }
 
 .mobile-controls--visible {
   display: flex;
+}
+
+.mobile-controls__surface {
+  pointer-events: auto;
+  background: rgba(255, 243, 224, 0.92);
+  border: 1px solid rgba(255, 112, 67, 0.35);
+  border-radius: 28px;
+  padding: clamp(12px, 4vw, 20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(6px);
+  touch-action: none;
+  user-select: none;
+}
+
+.mobile-controls__surface--action {
+  padding: clamp(16px, 5vw, 24px);
 }
 
 .mobile-controls__cluster {
@@ -222,45 +249,59 @@ body {
 }
 
 .mobile-controls__cluster--dpad {
+  --dpad-size: clamp(56px, 18vw, 88px);
   display: grid;
-  grid-template-columns: repeat(3, min(64px, 18vw));
-  grid-template-rows: repeat(3, min(64px, 18vw));
-  gap: 12px;
+  grid-template-columns: repeat(3, var(--dpad-size));
+  grid-template-rows: repeat(3, var(--dpad-size));
+  gap: clamp(8px, 3vw, 14px);
   justify-items: center;
   align-items: center;
+  touch-action: none;
+  user-select: none;
 }
 
-.mobile-controls__cluster--dpad > div {
-  width: min(64px, 18vw);
-  height: min(64px, 18vw);
+.mobile-controls__spacer {
+  width: var(--dpad-size);
+  height: var(--dpad-size);
 }
 
 .mobile-controls__button {
   border: none;
-  background: linear-gradient(135deg, #ffcc80, #ffb74d);
+  background: radial-gradient(circle at 30% 30%, #ffffff 0%, #ffcc80 60%, #ffb74d 100%);
   color: #bf360c;
   font-weight: bold;
-  border-radius: 12px;
-  font-size: clamp(16px, 4vw, 20px);
-  width: min(70px, 20vw);
-  height: min(70px, 20vw);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  border-radius: 50%;
+  font-size: clamp(18px, 5vw, 28px);
+  width: var(--dpad-size);
+  height: var(--dpad-size);
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.25);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
   touch-action: none;
+  user-select: none;
 }
 
 .mobile-controls__button--action {
-  width: min(120px, 36vw);
-  height: min(120px, 36vw);
-  font-size: clamp(18px, 5vw, 22px);
-  background: linear-gradient(135deg, #ff8a65, #ff7043);
+  width: clamp(80px, 26vw, 140px);
+  height: clamp(80px, 26vw, 140px);
+  font-size: clamp(18px, 5vw, 26px);
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #ffe0d6 0%, #ff8a65 55%, #ff7043 100%);
   color: #ffffff;
+  letter-spacing: 0.08em;
+  padding: 0 clamp(12px, 3vw, 24px);
 }
 
 .mobile-controls__button.is-active,
 .mobile-controls__button:active {
-  transform: scale(0.95);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transform: translateY(2px) scale(0.97);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.22);
+}
+
+.mobile-controls__label {
+  font-size: clamp(12px, 3.4vw, 16px);
+  color: #bf360c;
+  font-weight: 700;
+  letter-spacing: 0.05em;
 }
 
 @media (max-width: 768px) {
@@ -293,9 +334,9 @@ body {
   }
 
   .mobile-controls {
-    position: sticky;
-    bottom: 12px;
-    padding-bottom: 12px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    width: min(100%, 700px);
+    gap: clamp(16px, 8vw, 40px);
   }
 }
 
@@ -303,16 +344,38 @@ body {
   #start-overlay {
     padding: 20px 16px;
   }
+}
 
-  .mobile-controls__cluster--dpad {
-    grid-template-columns: repeat(3, min(58px, 20vw));
-    grid-template-rows: repeat(3, min(58px, 20vw));
+@media (max-width: 560px) {
+  .mobile-controls {
+    left: 0;
+    transform: none;
+    width: 100%;
+    padding: 0 clamp(8px, 6vw, 24px);
+    gap: clamp(12px, 5vw, 24px);
+  }
+
+  .mobile-controls__surface {
+    flex: 1;
+    padding: clamp(12px, 6vw, 18px);
+  }
+
+  .mobile-controls__surface--action {
+    align-items: stretch;
+  }
+
+  .mobile-controls__button--action {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .mobile-controls__surface {
     gap: 10px;
   }
 
-  .mobile-controls__cluster--dpad > div {
-    width: min(58px, 20vw);
-    height: min(58px, 20vw);
+  .mobile-controls__cluster--dpad {
+    --dpad-size: clamp(52px, 24vw, 72px);
   }
 }
 

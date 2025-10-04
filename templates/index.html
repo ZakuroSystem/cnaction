@@ -44,40 +44,49 @@
     <div id="score">スコア: 0</div>
     <div id="inventory">持ち物: なし</div>
     <div id="mobile-controls" class="mobile-controls" aria-hidden="true">
-      <div class="mobile-controls__cluster mobile-controls__cluster--dpad">
-        <button
-          type="button"
-          class="mobile-controls__button mobile-controls__button--up"
-          data-action="up"
-          aria-label="上に移動"
-        >▲</button>
-        <div></div>
-        <button
-          type="button"
-          class="mobile-controls__button mobile-controls__button--right"
-          data-action="right"
-          aria-label="右に移動"
-        >▶</button>
-        <button
-          type="button"
-          class="mobile-controls__button mobile-controls__button--left"
-          data-action="left"
-          aria-label="左に移動"
-        >◀</button>
-        <div></div>
-        <button
-          type="button"
-          class="mobile-controls__button mobile-controls__button--down"
-          data-action="down"
-          aria-label="下に移動"
-        >▼</button>
+      <div class="mobile-controls__surface mobile-controls__surface--move">
+        <div
+          class="mobile-controls__cluster mobile-controls__cluster--dpad"
+          role="group"
+          aria-label="移動操作"
+        >
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--up"
+            data-action="up"
+            aria-label="上に移動"
+          >▲</button>
+          <span class="mobile-controls__spacer" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--right"
+            data-action="right"
+            aria-label="右に移動"
+          >▶</button>
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--left"
+            data-action="left"
+            aria-label="左に移動"
+          >◀</button>
+          <span class="mobile-controls__spacer" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--down"
+            data-action="down"
+            aria-label="下に移動"
+          >▼</button>
+        </div>
+        <span class="mobile-controls__label">移動</span>
       </div>
-      <div class="mobile-controls__cluster mobile-controls__cluster--action">
+      <div class="mobile-controls__surface mobile-controls__surface--action">
         <button
           type="button"
           class="mobile-controls__button mobile-controls__button--action"
           data-action="interact"
+          aria-label="決定 / アクション"
         >アクション</button>
+        <span class="mobile-controls__label">決定</span>
       </div>
     </div>
   </div>
