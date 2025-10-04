@@ -11,6 +11,7 @@ export class UIManager {
     this.inventoryEl = inventoryEl || null;
     this.orderListEl = orderListEl || null;
     this.gameOverMessageEl = gameOverMessageEl || null;
+    this.orderCards = [];
   }
 
   update(state, playerId) {
@@ -60,69 +61,38 @@ export class UIManager {
 
   renderOrders(state) {
     if (!this.orderListEl) return;
-    const frag = document.createDocumentFragment();
+    const orders = state.orders || [];
     const limit = state.config?.orderTimeLimit ?? null;
 
-    state.orders.forEach((order, index) => {
-      const card = document.createElement('div');
-      card.className = 'order-card';
+    if (this.shouldRebuildOrderCards(orders)) {
+      this.rebuildOrderCards(orders);
+    }
 
-      const thumb = document.createElement('div');
-      thumb.className = 'order-card__thumb';
-      const iconSrc = this.getOrderIcon(order);
-      if (iconSrc) {
-        const img = document.createElement('img');
-        img.src = iconSrc;
-        img.alt = order.dish || 'オーダー';
-        img.loading = 'lazy';
-        thumb.appendChild(img);
-      } else {
-        thumb.classList.add('order-card__thumb--placeholder');
-        thumb.setAttribute('aria-hidden', 'true');
-      }
+    orders.forEach((order, index) => {
+      const card = this.orderCards[index];
+      if (!card) return;
 
-      const details = document.createElement('div');
-      details.className = 'order-card__details';
-
-      const name = document.createElement('div');
-      name.className = 'order-card__name';
       const dish = order.dish || '???';
-      name.textContent = `${index + 1}. ${dish}`;
-      name.title = dish;
-
-      const timer = document.createElement('div');
-      timer.className = 'order-card__timer';
-      timer.setAttribute('role', 'progressbar');
-
-      const bar = document.createElement('div');
-      bar.className = 'order-card__timer-bar';
+      card.name.textContent = `${index + 1}. ${dish}`;
+      card.name.title = dish;
 
       const remaining = Math.max(order.remaining ?? 0, 0);
       const baseLimit = limit ?? Math.max(remaining, 1);
       const ratio = baseLimit > 0 ? Math.min(Math.max(remaining / baseLimit, 0), 1) : 0;
-      bar.style.width = `${ratio * 100}%`;
+      card.bar.style.width = `${ratio * 100}%`;
       if (ratio < 0.34) {
-        bar.style.background = 'linear-gradient(90deg, #ef5350, #e53935)';
+        card.bar.style.background = 'linear-gradient(90deg, #ef5350, #e53935)';
       } else if (ratio < 0.67) {
-        bar.style.background = 'linear-gradient(90deg, #ffa726, #fb8c00)';
+        card.bar.style.background = 'linear-gradient(90deg, #ffa726, #fb8c00)';
+      } else {
+        card.bar.style.background = '';
       }
 
-      timer.setAttribute('aria-valuemin', '0');
-      timer.setAttribute('aria-valuemax', baseLimit.toString());
-      timer.setAttribute('aria-valuenow', remaining.toString());
-      timer.setAttribute('aria-label', `${dish} 残り ${remaining} 秒`);
-
-      timer.appendChild(bar);
-      details.appendChild(name);
-      details.appendChild(timer);
-
-      card.appendChild(thumb);
-      card.appendChild(details);
-      frag.appendChild(card);
+      card.timer.setAttribute('aria-valuemin', '0');
+      card.timer.setAttribute('aria-valuemax', baseLimit.toString());
+      card.timer.setAttribute('aria-valuenow', remaining.toString());
+      card.timer.setAttribute('aria-label', `${dish} 残り ${remaining} 秒`);
     });
-
-    this.orderListEl.innerHTML = '';
-    this.orderListEl.appendChild(frag);
   }
 
   renderGameOver(score) {
@@ -134,6 +104,7 @@ export class UIManager {
     if (this.orderListEl) {
       this.orderListEl.innerHTML = '';
     }
+    this.orderCards = [];
   }
 
   hideGameOver() {
@@ -151,5 +122,86 @@ export class UIManager {
       return `/static/assets/ingredient/${base}.png`;
     }
     return null;
+  }
+
+  shouldRebuildOrderCards(orders) {
+    if (orders.length !== this.orderCards.length) {
+      return true;
+    }
+
+    return orders.some((order, index) => {
+      const card = this.orderCards[index];
+      if (!card) return true;
+      return card.signature !== this.signatureForOrder(order);
+    });
+  }
+
+  rebuildOrderCards(orders) {
+    this.orderCards = orders.map((order, index) =>
+      this.createOrderCard(order, index)
+    );
+
+    if (!this.orderListEl) return;
+    const frag = document.createDocumentFragment();
+    this.orderCards.forEach((card) => {
+      frag.appendChild(card.element);
+    });
+    this.orderListEl.innerHTML = '';
+    this.orderListEl.appendChild(frag);
+  }
+
+  createOrderCard(order, index) {
+    const element = document.createElement('div');
+    element.className = 'order-card';
+
+    const thumb = document.createElement('div');
+    thumb.className = 'order-card__thumb';
+    const iconSrc = this.getOrderIcon(order);
+    if (iconSrc) {
+      const img = document.createElement('img');
+      img.src = iconSrc;
+      img.alt = order.dish || 'オーダー';
+      img.loading = 'lazy';
+      thumb.appendChild(img);
+    } else {
+      thumb.classList.add('order-card__thumb--placeholder');
+      thumb.setAttribute('aria-hidden', 'true');
+    }
+
+    const details = document.createElement('div');
+    details.className = 'order-card__details';
+
+    const name = document.createElement('div');
+    name.className = 'order-card__name';
+
+    const dish = order.dish || '???';
+    name.textContent = `${index + 1}. ${dish}`;
+    name.title = dish;
+
+    const timer = document.createElement('div');
+    timer.className = 'order-card__timer';
+    timer.setAttribute('role', 'progressbar');
+
+    const bar = document.createElement('div');
+    bar.className = 'order-card__timer-bar';
+    timer.appendChild(bar);
+
+    details.appendChild(name);
+    details.appendChild(timer);
+
+    element.appendChild(thumb);
+    element.appendChild(details);
+
+    return { element, name, timer, bar, signature: this.signatureForOrder(order) };
+  }
+
+  signatureForOrder(order) {
+    if (!order) return 'null';
+    const payload = {
+      dish: order.dish || '',
+      itemType: order.itemType || '',
+      image: order.image || '',
+    };
+    return JSON.stringify(payload);
   }
 }
