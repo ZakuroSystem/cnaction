@@ -314,6 +314,4 @@ export class GameClient {
   cloneItems(items) {
     return items.map((item) => ({ ...item }));
   }
-
-  }
 }
