@@ -1,4 +1,4 @@
-import { GameClient } from './game-client.js';
+import { GameClient } from './game/game-client.js';
 
 const socket = io();
 let gameClient = null;
