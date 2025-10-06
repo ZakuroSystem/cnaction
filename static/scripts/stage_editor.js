@@ -58,9 +58,10 @@ const baseTexturePaths = {
 };
 
 const ingredientTexturePaths = {
-    ingredient_tomato: '/static/assets/ingredient/tomato.png',
-    ingredient_lettuce: '/static/assets/ingredient/lettuce.png',
-    ingredient_bread: '/static/assets/ingredient/bread.png'
+    ingredient_burger_buns: '/static/new_items/burger_buns.png',
+    ingredient_beef_patty: '/static/new_items/beef_patty.png',
+    ingredient_lettuce: '/static/new_items/lettuce.png',
+    ingredient_tomato: '/static/new_items/TMT.png'
 };
 
 const textures = {};
@@ -100,15 +101,17 @@ function ensureTexture(key) {
     }
     const failures = failedTextures.get(key) || 0;
     if (key.startsWith('ingredient_')) {
+        const name = key.substring('ingredient_'.length);
         if (failures === 0) {
-            const name = key.substring('ingredient_'.length);
-            registerTexture(key, `/static/assets/ingredient/${name}.png`);
+            registerTexture(key, `/static/new_items/${name}.png`);
         } else if (failures === 1) {
-            registerTexture(key, `/static/assets/${key}.png`);
+            registerTexture(key, `/static/assets/ingredient/${name}.png`);
         }
         return textures[key] || null;
     }
     if (failures === 0) {
+        registerTexture(key, `/static/new_items/${key}.png`);
+    } else if (failures === 1) {
         registerTexture(key, `/static/assets/${key}.png`);
     }
     return textures[key] || null;
@@ -712,7 +715,7 @@ if (addFoodButton) {
     addFoodButton.onclick = () => {
         ensureStageStructure();
         const idx = config.foodGenerators.length;
-        config.foodGenerators.push({ x: 160 + idx * 50, y: 400, width: 96, height: 96, nextFood: 'ingredient_tomato' });
+        config.foodGenerators.push({ x: 160 + idx * 50, y: 400, width: 96, height: 96, nextFood: 'ingredient_beef_patty' });
         pendingSelectId = `foodGen-${idx}`;
         refreshUi();
     };

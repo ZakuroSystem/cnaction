@@ -120,6 +120,32 @@ body {
   color: #d84315;
 }
 
+.order-card__recipe {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-card__recipe-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #5d4037;
+}
+
+.order-card__recipe-item img {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px #ffe0b2;
+  background: #ffffff;
+  padding: 2px;
+}
+
 
 .order-card__timer {
   width: 100%;
@@ -332,6 +358,20 @@ body {
   .order-card {
     gap: 12px;
     padding: 12px;
+  }
+
+  .order-card__recipe {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 4px 8px;
+  }
+
+  .order-card__recipe-item {
+    font-size: 13px;
+  }
+
+  .order-card__recipe-item img {
+    width: 28px;
+    height: 28px;
   }
 
   .order-card__thumb {

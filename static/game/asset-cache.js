@@ -38,7 +38,11 @@ export class AssetCache {
     }
 
     if (key.startsWith('ingredient_')) {
-      return `/static/assets/ingredient/${key.replace('ingredient_', '')}.png`;
+      return `/static/new_items/${key.replace('ingredient_', '')}.png`;
+    }
+
+    if (key.startsWith('dish_')) {
+      return '/static/new_items/hamburger.png';
     }
 
     if (key.startsWith('player')) {
@@ -74,6 +78,10 @@ export class AssetCache {
       return table[key];
     }
 
-    return `/static/assets/${key}.png`;
+    const fallback = `/static/new_items/${key}.png`;
+    if (this.errorTokens.has(fallback)) {
+      return `/static/assets/${key}.png`;
+    }
+    return fallback;
   }
 }

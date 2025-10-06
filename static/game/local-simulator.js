@@ -1,32 +1,201 @@
-const INGREDIENT_DEFS = {
-  ingredient_tomato: {
-    name: 'トマト',
-    dish: 'トマト(切って焼いたもの)',
-  },
-  ingredient_lettuce: {
-    name: 'レタス',
-    dish: 'レタス(切って焼いたもの)',
-  },
-  ingredient_bread: {
-    name: 'バンズ',
-    dish: 'バンズ(切って焼いたもの)',
-  },
-};
-
 const STATE_LABELS = {
   raw: '生',
   chopped: 'カット済み',
   cut: 'カット済み',
   cooked: '焼き上がり',
+  toasted: 'トースト済み',
+  assembled: '完成',
 };
 
+const ITEM_LIBRARY = {
+  ingredient_burger_buns: {
+    name: 'バンズ',
+    defaultState: 'raw',
+    states: {
+      raw: { label: 'そのまま', image: '/static/new_items/burger_buns.png' },
+      toasted: { label: 'トースト', image: '/static/new_items/burger_buns.png' },
+    },
+  },
+  ingredient_beef_patty: {
+    name: 'ビーフパティ',
+    defaultState: 'raw',
+    states: {
+      raw: { label: '生', image: '/static/new_items/beef_patty.png' },
+      cooked: { label: 'グリル済み', image: '/static/new_items/grilled_beef_patty.png' },
+    },
+  },
+  ingredient_lettuce: {
+    name: 'レタス',
+    defaultState: 'raw',
+    states: {
+      raw: { label: 'そのまま', image: '/static/new_items/lettuce.png' },
+      chopped: { label: '刻み', image: '/static/new_items/lettuce_cut.png' },
+    },
+  },
+  ingredient_tomato: {
+    name: 'トマト',
+    defaultState: 'raw',
+    states: {
+      raw: { label: 'そのまま', image: '/static/new_items/TMT.png' },
+      chopped: { label: 'スライス', image: '/static/new_items/TMT_slice.png' },
+    },
+  },
+  dish_plain_burger: {
+    name: 'プレーンバーガー',
+    dish: 'プレーンバーガー',
+    defaultState: 'assembled',
+    states: {
+      assembled: { label: '完成', image: '/static/new_items/hamburger.png' },
+    },
+    components: [
+      { type: 'ingredient_burger_buns', state: 'toasted' },
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+    ],
+  },
+  dish_lettuce_burger: {
+    name: 'レタスバーガー',
+    dish: 'レタスバーガー',
+    defaultState: 'assembled',
+    states: {
+      assembled: { label: '完成', image: '/static/new_items/hamburger.png' },
+    },
+    components: [
+      { type: 'ingredient_burger_buns', state: 'toasted' },
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+      { type: 'ingredient_lettuce', state: 'chopped' },
+    ],
+  },
+  dish_tomato_burger: {
+    name: 'トマトバーガー',
+    dish: 'トマトバーガー',
+    defaultState: 'assembled',
+    states: {
+      assembled: { label: '完成', image: '/static/new_items/hamburger.png' },
+    },
+    components: [
+      { type: 'ingredient_burger_buns', state: 'toasted' },
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+      { type: 'ingredient_tomato', state: 'chopped' },
+    ],
+  },
+  dish_deluxe_burger: {
+    name: 'デラックスバーガー',
+    dish: 'デラックスバーガー',
+    defaultState: 'assembled',
+    states: {
+      assembled: { label: '完成', image: '/static/new_items/hamburger.png' },
+    },
+    components: [
+      { type: 'ingredient_burger_buns', state: 'toasted' },
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+      { type: 'ingredient_lettuce', state: 'chopped' },
+      { type: 'ingredient_tomato', state: 'chopped' },
+    ],
+  },
+};
+
+const COOKING_RECIPES = [
+  {
+    type: 'ingredient_burger_buns',
+    from: 'raw',
+    to: 'toasted',
+    action: 'bake',
+    duration: 2.5,
+    display: 'バンズをトーストしている…',
+  },
+  {
+    type: 'ingredient_beef_patty',
+    from: 'raw',
+    to: 'cooked',
+    action: 'bake',
+    duration: 3.5,
+    display: 'パティを焼いている…',
+  },
+  {
+    type: 'ingredient_lettuce',
+    from: 'raw',
+    to: 'chopped',
+    action: 'cut',
+    duration: 2.0,
+    display: 'レタスを刻んでいる…',
+  },
+  {
+    type: 'ingredient_tomato',
+    from: 'raw',
+    to: 'chopped',
+    action: 'cut',
+    duration: 2.5,
+    display: 'トマトをスライスしている…',
+  },
+];
+
+const COMBINATION_RECIPES = [
+  {
+    inputs: [
+      { type: 'ingredient_burger_buns', state: 'toasted' },
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+    ],
+    result: { type: 'dish_plain_burger', state: 'assembled' },
+    name: 'プレーンバーガー',
+  },
+  {
+    inputs: [
+      { type: 'dish_plain_burger', state: 'assembled' },
+      { type: 'ingredient_lettuce', state: 'chopped' },
+    ],
+    result: { type: 'dish_lettuce_burger', state: 'assembled' },
+    name: 'レタスバーガー',
+  },
+  {
+    inputs: [
+      { type: 'dish_plain_burger', state: 'assembled' },
+      { type: 'ingredient_tomato', state: 'chopped' },
+    ],
+    result: { type: 'dish_tomato_burger', state: 'assembled' },
+    name: 'トマトバーガー',
+  },
+  {
+    inputs: [
+      { type: 'dish_lettuce_burger', state: 'assembled' },
+      { type: 'ingredient_tomato', state: 'chopped' },
+    ],
+    result: { type: 'dish_deluxe_burger', state: 'assembled' },
+    name: 'デラックスバーガー',
+  },
+  {
+    inputs: [
+      { type: 'dish_tomato_burger', state: 'assembled' },
+      { type: 'ingredient_lettuce', state: 'chopped' },
+    ],
+    result: { type: 'dish_deluxe_burger', state: 'assembled' },
+    name: 'デラックスバーガー',
+  },
+];
+
+function itemDefinition(type) {
+  return ITEM_LIBRARY[type] || {};
+}
+
 function ingredientTypes() {
-  return Object.keys(INGREDIENT_DEFS);
+  return Object.keys(ITEM_LIBRARY).filter((key) => key.startsWith('ingredient_'));
+}
+
+function dishTypes() {
+  return Object.keys(ITEM_LIBRARY).filter((key) => ITEM_LIBRARY[key]?.dish);
+}
+
+function defaultItemState(type) {
+  return itemDefinition(type).defaultState || 'raw';
 }
 
 function formatItemDisplay(type, state) {
-  const base = INGREDIENT_DEFS[type]?.name || type || '';
-  const label = STATE_LABELS[state] || state || '';
+  const def = itemDefinition(type);
+  const base = def.name || type || '';
+  const stateInfo = def.states?.[state];
+  const label = stateInfo?.label || STATE_LABELS[state] || state || '';
+  if (!label) {
+    return base;
+  }
   return `${base} (${label})`;
 }
 
@@ -40,6 +209,39 @@ function cloneItem(item) {
     state: item.state,
     display: item.display,
   };
+}
+
+function matchRequirement(type, state, requirement) {
+  if (!requirement) return false;
+  if (requirement.type && requirement.type !== type) {
+    return false;
+  }
+  if (requirement.state && requirement.state !== state) {
+    return false;
+  }
+  return true;
+}
+
+function findCombinationRecipe(recipes, typeA, stateA, typeB, stateB) {
+  if (!Array.isArray(recipes)) return null;
+  for (const recipe of recipes) {
+    const inputs = Array.isArray(recipe.inputs) ? recipe.inputs : [];
+    if (inputs.length !== 2) continue;
+    const [first, second] = inputs;
+    if (
+      matchRequirement(typeA, stateA, first) &&
+      matchRequirement(typeB, stateB, second)
+    ) {
+      return recipe;
+    }
+    if (
+      matchRequirement(typeA, stateA, second) &&
+      matchRequirement(typeB, stateB, first)
+    ) {
+      return recipe;
+    }
+  }
+  return null;
 }
 
 function clonePlayer(player) {
@@ -275,9 +477,28 @@ export class LocalSimulator {
             }
           }
           if (!updated.image && updated.itemType) {
-            const img = this.resolveItemImage(updated.itemType);
+            const info = itemDefinition(updated.itemType);
+            const img = this.resolveItemImage(updated.itemType, info.defaultState);
             if (img) {
               updated.image = img;
+            }
+          }
+          if ((!updated.components || !updated.componentItems) && updated.itemType) {
+            const info = itemDefinition(updated.itemType);
+            const componentMeta = [];
+            (info.components || []).forEach((component) => {
+              const compType = component.type;
+              const compState = component.state;
+              componentMeta.push({
+                type: compType,
+                state: compState,
+                label: formatItemDisplay(compType, compState),
+                image: this.resolveItemImage(compType, compState),
+              });
+            });
+            if (componentMeta.length) {
+              updated.componentItems = componentMeta;
+              updated.components = componentMeta.map((c) => c.label);
             }
           }
           if (remaining !== order.remaining) {
@@ -379,6 +600,10 @@ export class LocalSimulator {
       this.dirty = true;
       return true;
     }
+    if (this.tryCombine(player, posX, posY)) {
+      this.dirty = true;
+      return true;
+    }
     if (this.tryDeliver(player, posX, posY)) {
       this.dirty = true;
       return true;
@@ -423,10 +648,7 @@ export class LocalSimulator {
     const cfg = this.state.config || {};
     const generators = cfg.foodGenerators || [];
     if (!generators.length) return false;
-    let choices = Object.keys(cfg.orderMapping || {});
-    if (!choices.length) {
-      choices = ingredientTypes();
-    }
+    const choices = ingredientTypes();
     if (!choices.length) {
       return false;
     }
@@ -440,13 +662,14 @@ export class LocalSimulator {
       if (!wanted) {
         continue;
       }
+      const state = defaultItemState(wanted);
       const newItem = {
         id: this.state.nextItemId,
         type: wanted,
         x,
         y,
-        state: 'raw',
-        display: formatItemDisplay(wanted, 'raw'),
+        state,
+        display: formatItemDisplay(wanted, state),
       };
       this.state.nextItemId += 1;
       player.currentItem = newItem;
@@ -458,18 +681,32 @@ export class LocalSimulator {
 
   resolveActionForItem(item) {
     if (!item) return null;
-    if (!item.state || item.state === 'raw') {
+    const cfg = this.state.config || {};
+    const recipes = Array.isArray(cfg.cookingRecipes) && cfg.cookingRecipes.length
+      ? cfg.cookingRecipes
+      : COOKING_RECIPES;
+    for (const recipe of recipes) {
+      if (!recipe || recipe.type !== item.type) continue;
+      const fromState = recipe.from;
+      if (fromState && fromState !== item.state) {
+        continue;
+      }
+      const action = recipe.action;
+      const resultState = recipe.to ?? item.state;
+      if (!action || resultState == null) {
+        continue;
+      }
+      const resultType = recipe.resultType || item.type;
+      const baseDuration = action === 'cut'
+        ? Number(cfg.cutDuration) || 2.0
+        : Number(cfg.bakeDuration) || 3.0;
+      const duration = Number(recipe.duration) || baseDuration;
       return {
-        action: 'cut',
-        resultState: 'chopped',
-        duration: Number(this.state.config?.cutDuration) || 2.0,
-      };
-    }
-    if (item.state === 'chopped' || item.state === 'cut') {
-      return {
-        action: 'bake',
-        resultState: 'cooked',
-        duration: Number(this.state.config?.bakeDuration) || 3.0,
+        action,
+        resultState,
+        resultType,
+        duration,
+        display: recipe.display,
       };
     }
     return null;
@@ -502,10 +739,13 @@ export class LocalSimulator {
         duration: Math.max(actionInfo.duration, 0.1),
         texture: item.type,
         itemType: item.type,
-        displayText: zone.display || (actionInfo.action === 'cut' ? '切っている…' : '焼いている…'),
-        result_type: item.type,
+        displayText:
+          actionInfo.display ||
+          zone.display ||
+          (actionInfo.action === 'cut' ? '切っている…' : '焼いている…'),
+        result_type: actionInfo.resultType,
         result_state: actionInfo.resultState,
-        result_display: formatItemDisplay(item.type, actionInfo.resultState),
+        result_display: formatItemDisplay(actionInfo.resultType, actionInfo.resultState),
         startedAt: nowSeconds(),
       };
       zone.cooking = task;
@@ -519,6 +759,45 @@ export class LocalSimulator {
     return false;
   }
 
+  tryCombine(player, x, y) {
+    const item = player.currentItem;
+    if (!item) return false;
+    const cfg = this.state.config || {};
+    const recipes = Array.isArray(cfg.combinationRecipes) && cfg.combinationRecipes.length
+      ? cfg.combinationRecipes
+      : COMBINATION_RECIPES;
+    for (let i = 0; i < this.state.items.length; i += 1) {
+      const other = this.state.items[i];
+      if (other === item) continue;
+      if (distanceSquared(other.x, other.y, x, y) > 60 * 60) {
+        continue;
+      }
+      const recipe = findCombinationRecipe(recipes, item.type, item.state, other.type, other.state);
+      if (!recipe) {
+        continue;
+      }
+      const result = recipe.result || {};
+      const resultType = result.type;
+      if (!resultType) {
+        continue;
+      }
+      const resultState = result.state || defaultItemState(resultType);
+      this.state.items.splice(i, 1);
+      const combined = {
+        id: this.state.nextItemId,
+        type: resultType,
+        x,
+        y,
+        state: resultState,
+        display: formatItemDisplay(resultType, resultState),
+      };
+      this.state.nextItemId += 1;
+      player.currentItem = combined;
+      return true;
+    }
+    return false;
+  }
+
   tryDeliver(player, x, y) {
     const item = player.currentItem;
     if (!item) return false;
@@ -526,11 +805,17 @@ export class LocalSimulator {
     if (!deliveryZone || !inZone(x, y, deliveryZone)) {
       return false;
     }
-    if (item.state !== 'cooked') {
+    const mapping = this.state.config?.orderMapping || {};
+    const delivered = mapping[item.type];
+    if (!delivered) {
       return false;
     }
-    const mapping = this.state.config?.orderMapping || {};
-    const delivered = mapping[item.type] || formatItemDisplay(item.type, item.state);
+    const expectedState = item.type.startsWith('dish_')
+      ? defaultItemState(item.type)
+      : 'cooked';
+    if (expectedState && item.state !== expectedState) {
+      return false;
+    }
     const expected = this.state.orders[0]?.dish;
     if (delivered === expected) {
       this.state.score += 10;
@@ -569,22 +854,34 @@ export class LocalSimulator {
 
   buildOrder() {
     const cfg = this.state.config || {};
-    let dishes = Array.isArray(cfg.dishList) ? cfg.dishList.slice() : [];
-    if (!dishes.length) {
-      dishes = ingredientTypes().map((key) => INGREDIENT_DEFS[key]?.dish).filter(Boolean);
+    const mapping = cfg.orderMapping || {};
+    let availableTypes = Object.keys(mapping);
+    if (!availableTypes.length) {
+      availableTypes = dishTypes();
     }
-    const dish = dishes.length ? randomChoice(dishes) : '';
+    const itemType = availableTypes.length ? randomChoice(availableTypes) : null;
+    const info = itemType ? itemDefinition(itemType) : {};
+    const dish = (itemType && mapping[itemType]) || info.dish || info.name || '';
     const limit = Number(cfg.orderTimeLimit) || 30;
     const order = {
       dish,
       remaining: limit,
     };
-    const itemType = this.resolveOrderItemType(dish);
     if (itemType) {
       order.itemType = itemType;
-      const image = this.resolveItemImage(itemType);
+      const image = this.resolveItemImage(itemType, info.defaultState);
       if (image) {
         order.image = image;
+      }
+      const components = (info.components || []).map((component) => ({
+        type: component.type,
+        state: component.state,
+        label: formatItemDisplay(component.type, component.state),
+        image: this.resolveItemImage(component.type, component.state),
+      }));
+      if (components.length) {
+        order.componentItems = components;
+        order.components = components.map((c) => c.label);
       }
     }
     return order;
@@ -595,11 +892,26 @@ export class LocalSimulator {
     return Object.entries(mapping).find(([, value]) => value === dish)?.[0] || null;
   }
 
-  resolveItemImage(itemType) {
+  resolveItemImage(itemType, state) {
     if (!itemType) return null;
     const custom = (this.state.config?.customItems || []).find(
       (item) => item?.type === itemType && item.image,
     );
-    return custom?.image || null;
+    if (custom?.image) {
+      return custom.image;
+    }
+    const def = itemDefinition(itemType);
+    const stateKey = state || def.defaultState;
+    if (stateKey && def.states?.[stateKey]?.image) {
+      return def.states[stateKey].image;
+    }
+    if (def.states) {
+      for (const value of Object.values(def.states)) {
+        if (value?.image) {
+          return value.image;
+        }
+      }
+    }
+    return null;
   }
 }
