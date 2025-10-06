@@ -32,3 +32,5 @@ class RoomState:
     config: dict = field(default_factory=get_default_config)
     nextItemId: int = 1
     resetScheduled: bool = False
+    hostId: str = ''
+    clientManaged: bool = False

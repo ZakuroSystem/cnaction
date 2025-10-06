@@ -266,6 +266,84 @@ def schedule_flush(delay: float = 1 / 30):
 
     socketio.start_background_task(runner)
 
+
+def _coerce_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _item_from_snapshot(data: dict, fallback_id: int) -> Item:
+    item_id = _coerce_int(data.get('id'), fallback_id)
+    return Item(
+        id=item_id,
+        type=str(data.get('type') or ''),
+        x=_coerce_float(data.get('x'), 0.0),
+        y=_coerce_float(data.get('y'), 0.0),
+        state=str(data.get('state') or 'raw'),
+        display=data.get('display') or None,
+    )
+
+
+def _apply_client_state(room: str, snapshot: dict):
+    rs = rooms[room]
+    players = snapshot.get('players') or {}
+    new_players: Dict[str, Player] = {}
+    for pid, pdata in players.items():
+        existing = rs.players.get(pid, Player(base_image=pid, image=pid))
+        existing.x = _coerce_float(pdata.get('x'), existing.x)
+        existing.y = _coerce_float(pdata.get('y'), existing.y)
+        if pdata.get('base_image'):
+            existing.base_image = str(pdata.get('base_image'))
+        if pdata.get('image'):
+            existing.image = str(pdata.get('image'))
+        item_payload = pdata.get('currentItem')
+        if isinstance(item_payload, dict):
+            existing.currentItem = _item_from_snapshot(item_payload, rs.nextItemId)
+        else:
+            existing.currentItem = None
+        new_players[pid] = existing
+
+    rs.players = new_players
+
+    items_payload = snapshot.get('items') or []
+    new_items = []
+    for item in items_payload:
+        if not isinstance(item, dict):
+            continue
+        new_items.append(_item_from_snapshot(item, rs.nextItemId))
+    rs.items = new_items
+
+    if snapshot.get('orders') is not None:
+        orders = []
+        for order in snapshot.get('orders') or []:
+            if isinstance(order, dict):
+                orders.append(dict(order))
+        rs.orders = orders
+    rs.score = _coerce_int(snapshot.get('score'), rs.score)
+    rs.timer = _coerce_int(snapshot.get('timer'), rs.timer)
+    rs.gameOver = bool(snapshot.get('gameOver', rs.gameOver))
+
+    if snapshot.get('nextItemId') is not None:
+        rs.nextItemId = _coerce_int(snapshot.get('nextItemId'), rs.nextItemId)
+    elif rs.items:
+        rs.nextItemId = max(itm.id for itm in rs.items) + 1
+
+    cfg = snapshot.get('config')
+    if isinstance(cfg, dict):
+        rs.config = sanitize_config(cfg)
+
+    rs.clientManaged = True
+
+
 def in_zone(x: float, y: float, zone: dict) -> bool:
     return (
         zone['x'] - zone['width']/2 <= x <= zone['x'] + zone['width']/2 and
@@ -373,6 +451,8 @@ def reset_room():
 # SocketIO イベント
 # ─────────────────────────────────────────
 def run_cooking_task(room: str, zone: dict, task: dict):
+    if room not in rooms or rooms[room].clientManaged:
+        return
     duration = max(float(task.get('duration', 1.0) or 0.0), 0.1)
     start = time.time()
     task['startedAt'] = start
@@ -432,8 +512,13 @@ def on_join(data):
     pid = f"player{len(rs.players)+1}"
     rs.players[pid] = Player(base_image=pid, image=pid)
     sid_to_player[request.sid] = (room, pid)
+    is_host = False
+    if not rs.hostId:
+        rs.hostId = pid
+        rs.clientManaged = True
+        is_host = True
     mark_dirty(room)
-    return {'playerId': pid}
+    return {'playerId': pid, 'isHost': is_host, 'clientManaged': rs.clientManaged}
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -443,6 +528,10 @@ def on_disconnect():
     room, pid = info
     if room in rooms and pid in rooms[room].players:
         rooms[room].players.pop(pid)
+        rs = rooms[room]
+        if rs.hostId == pid:
+            rs.hostId = ''
+            rs.clientManaged = False
         mark_dirty(room)
 
 @socketio.on('update_config')
@@ -462,7 +551,8 @@ def on_move(data):
     room, pid = data.get('room'), data.get('playerId')
     if room not in rooms or pid not in rooms[room].players:
         return
-    p = rooms[room].players[pid]
+    rs = rooms[room]
+    p = rs.players[pid]
     try:
         nx = float(data.get('x'))
         ny = float(data.get('y'))
@@ -472,6 +562,13 @@ def on_move(data):
     p.x, p.y = nx, ny
     if p.currentItem:
         p.currentItem.x, p.currentItem.y = nx, ny
+    if rs.clientManaged:
+        socketio.emit('client_move', {
+            'playerId': pid,
+            'room': room,
+            'x': nx,
+            'y': ny,
+        }, room=room)
     mark_dirty(room)
 
 @socketio.on('interact')
@@ -480,6 +577,15 @@ def on_interact(data):
     if room not in rooms or pid not in rooms[room].players:
         return
     rs, p = rooms[room], rooms[room].players[pid]
+    if rs.clientManaged:
+        payload = {
+            'playerId': pid,
+            'room': room,
+            'x': data.get('x'),
+            'y': data.get('y'),
+        }
+        socketio.emit('client_interact', payload, room=room)
+        return
     cfg = rs.config
 
     x, y = p.x, p.y
@@ -621,6 +727,23 @@ def on_interact(data):
     p.currentItem = None
     mark_dirty(room)
 
+
+@socketio.on('client_state')
+def on_client_state(data):
+    room, pid = data.get('room'), data.get('playerId')
+    if room not in rooms or pid not in rooms[room].players:
+        return
+    rs = rooms[room]
+    if rs.hostId and rs.hostId != pid:
+        return
+    snapshot = data.get('state')
+    if not isinstance(snapshot, dict):
+        return
+    if not rs.hostId:
+        rs.hostId = pid
+    _apply_client_state(room, snapshot)
+    mark_dirty(room)
+
 # ─────────────────────────────────────────
 # ゲームタイマー起動
 # ─────────────────────────────────────────
@@ -630,6 +753,8 @@ def game_timer_task():
         socketio.sleep(1)
         for room in list(rooms.keys()):
             rs = rooms[room]
+            if rs.clientManaged:
+                continue
             if rs.timer > 0:
                 rs.timer -= 1
                 if rs.timer <= 0:

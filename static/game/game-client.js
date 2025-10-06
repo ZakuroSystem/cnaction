@@ -2,6 +2,7 @@ import { AssetCache } from './asset-cache.js';
 import { MobileControls } from './mobile-controls.js';
 import { Renderer } from './renderer.js';
 import { UIManager } from './ui-manager.js';
+import { LocalSimulator } from './local-simulator.js';
 
 export class GameClient {
   constructor(container, socket, onDispose = () => {}) {
@@ -28,6 +29,8 @@ export class GameClient {
 
     this.serverState = null;
     this.localPosition = null;
+    this.localSimulator = null;
+    this.isHost = false;
     this.keyState = {};
     this.spaceDown = false;
     this.lastFrame = performance.now();
@@ -37,12 +40,16 @@ export class GameClient {
     this.pendingUiState = null;
     this.uiSyncInterval = 1 / 15;
     this.uiSyncAccumulator = 0;
+    this.stateBroadcastInterval = 0.1;
+    this.stateBroadcastTimer = 0;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
     this.boundVisibilityChange = () => this.handleVisibilityChange();
     this.boundStateUpdate = (state) => this.handleStateUpdate(state);
     this.boundForceDisconnect = () => this.handleForceDisconnect();
+    this.boundClientInteract = (payload) => this.handleClientInteract(payload);
+    this.boundClientMove = (payload) => this.handleClientMove(payload);
 
     this.mobileControls = new MobileControls(this);
   }
@@ -54,12 +61,23 @@ export class GameClient {
 
     this.socket.off('state_update', this.boundStateUpdate);
     this.socket.off('force_disconnect', this.boundForceDisconnect);
+    this.socket.off('client_interact', this.boundClientInteract);
+    this.socket.off('client_move', this.boundClientMove);
     this.socket.on('state_update', this.boundStateUpdate);
     this.socket.on('force_disconnect', this.boundForceDisconnect);
+    this.socket.on('client_interact', this.boundClientInteract);
+    this.socket.on('client_move', this.boundClientMove);
 
     const payload = { room: String(window.roomName || 'room1') };
     this.socket.emit('join', payload, (data) => {
       window.playerId = data.playerId;
+      this.isHost = Boolean(data?.isHost);
+      if (this.isHost && !this.localSimulator) {
+        this.localSimulator = new LocalSimulator();
+      } else if (!this.isHost) {
+        this.localSimulator = null;
+      }
+      this.stateBroadcastTimer = 0;
     });
 
     this.canvas.focus({ preventScroll: true });
@@ -73,11 +91,15 @@ export class GameClient {
     document.removeEventListener('visibilitychange', this.boundVisibilityChange);
     this.socket.off('state_update', this.boundStateUpdate);
     this.socket.off('force_disconnect', this.boundForceDisconnect);
+    this.socket.off('client_interact', this.boundClientInteract);
+    this.socket.off('client_move', this.boundClientMove);
     this.pendingUiState = null;
     this.uiSyncAccumulator = 0;
     this.serverState = null;
     this.localPosition = null;
     this.lastSentPosition = null;
+    this.localSimulator = null;
+    this.isHost = false;
     if (this.mobileControls) {
       this.mobileControls.destroy();
       this.mobileControls = null;
@@ -96,7 +118,8 @@ export class GameClient {
   }
 
   handleStateUpdate(state) {
-    this.serverState = this.cloneState(state);
+    const cloned = this.cloneState(state);
+    this.serverState = cloned;
     if (state.players && window.playerId && state.players[window.playerId]) {
       const me = state.players[window.playerId];
       if (!this.localPosition) {
@@ -107,8 +130,19 @@ export class GameClient {
       }
     }
 
-    this.pendingUiState = this.cloneState(state);
-    this.uiSyncAccumulator = this.uiSyncInterval;
+    if (this.isHost) {
+      if (!this.localSimulator) {
+        this.localSimulator = new LocalSimulator();
+      }
+      if (!this.localSimulator.hasState()) {
+        this.localSimulator.loadState(cloned);
+      } else {
+        this.localSimulator.mergeServerState(cloned, window.playerId);
+      }
+      this.queueUiFromLocal();
+    } else {
+      this.setPendingUiState(cloned);
+    }
   }
 
   handleForceDisconnect() {
@@ -195,6 +229,20 @@ export class GameClient {
       }
     }
 
+    if (this.isHost && this.localSimulator) {
+      const x = Number.isFinite(payload.x) ? payload.x : this.localPosition?.x;
+      const y = Number.isFinite(payload.y) ? payload.y : this.localPosition?.y;
+      const handled = this.localSimulator.handleInteract(window.playerId, {
+        x,
+        y,
+      });
+      if (handled) {
+        this.queueUiFromLocal();
+        this.broadcastLocalState(true);
+      }
+      return;
+    }
+
     this.socket.emit('interact', payload);
   }
 
@@ -218,15 +266,38 @@ export class GameClient {
     }
 
     this.clampLocalPosition();
+    if (this.isHost && this.localSimulator) {
+      this.localSimulator.handleMove(window.playerId, this.localPosition.x, this.localPosition.y);
+    }
     this.maybeSendMove(movement.moving);
+
+    if (this.isHost && this.localSimulator) {
+      this.localSimulator.update(dt);
+      this.queueUiFromLocal();
+      this.stateBroadcastTimer += dt;
+      if (this.localSimulator.hasDirtyState() && this.stateBroadcastTimer >= this.stateBroadcastInterval) {
+        this.broadcastLocalState(false);
+      }
+    }
   }
 
   render() {
-    if (!this.serverState) {
+    if (!this.serverState && !(this.isHost && this.localSimulator)) {
       return;
     }
 
-    const displayState = this.cloneState(this.serverState);
+    let sourceState = this.serverState;
+    if (this.isHost && this.localSimulator) {
+      const local = this.localSimulator.getDisplayState();
+      if (local) {
+        sourceState = local;
+      }
+    }
+    if (!sourceState) {
+      return;
+    }
+
+    const displayState = this.cloneState(sourceState);
     if (window.playerId && this.localPosition && displayState.players?.[window.playerId]) {
       displayState.players[window.playerId].x = this.localPosition.x;
       displayState.players[window.playerId].y = this.localPosition.y;
@@ -249,6 +320,72 @@ export class GameClient {
     this.ui.update(this.pendingUiState, window.playerId);
     this.pendingUiState = null;
     this.uiSyncAccumulator = 0;
+  }
+
+  setPendingUiState(state) {
+    if (!state) return;
+    this.pendingUiState = this.cloneState(state);
+    this.uiSyncAccumulator = this.uiSyncInterval;
+  }
+
+  queueUiFromLocal() {
+    if (!this.localSimulator) return;
+    const state = this.localSimulator.getDisplayState();
+    if (!state) return;
+    this.setPendingUiState(state);
+  }
+
+  broadcastLocalState(force) {
+    if (!this.isHost || !this.localSimulator || !window.roomName || !window.playerId) {
+      return;
+    }
+    if (!force && !this.localSimulator.hasDirtyState()) {
+      return;
+    }
+    const state = this.localSimulator.getDisplayState();
+    if (!state) {
+      return;
+    }
+    this.socket.emit('client_state', {
+      room: window.roomName,
+      playerId: window.playerId,
+      state,
+    });
+    this.localSimulator.clearDirtyState();
+    this.stateBroadcastTimer = 0;
+    this.setPendingUiState(state);
+  }
+
+  handleClientMove(payload) {
+    if (!this.isHost || !this.localSimulator) {
+      return;
+    }
+    const { playerId, x, y } = payload || {};
+    if (!playerId || playerId === window.playerId) {
+      return;
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    this.localSimulator.handleMove(playerId, x, y);
+    this.queueUiFromLocal();
+  }
+
+  handleClientInteract(payload) {
+    if (!this.isHost || !this.localSimulator) {
+      return;
+    }
+    const { playerId } = payload || {};
+    if (!playerId || playerId === window.playerId) {
+      return;
+    }
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    const handled = this.localSimulator.handleInteract(playerId, { x, y });
+    if (handled) {
+      this.queueUiFromLocal();
+      this.broadcastLocalState(true);
+    }
   }
 
   computeMovementVector() {
