@@ -3,6 +3,7 @@ import time
 import random
 import uuid
 from dataclasses import asdict
+from threading import Lock
 from typing import Dict
 import json
 
@@ -13,8 +14,8 @@ from flask_socketio import SocketIO, join_room
 
 from utils import (
     get_default_config, in_zone, parse_transfer_objects,
-    find_next_step, update_orders, process_combinations,
-    export_config_response, save_uploaded_file, build_order
+    update_orders, export_config_response, save_uploaded_file, build_order,
+    ingredient_types, get_dish_name, format_item_display
 )
 from models import Item, Player, RoomState
 
@@ -23,7 +24,18 @@ from models import Item, Player, RoomState
 # ─────────────────────────────────────────
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config['SECRET_KEY'] = 'secret!'
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+
+def _static_mtime(path: str) -> int:
+    """Return the last modified timestamp for a static asset."""
+    try:
+        return int(os.path.getmtime(os.path.join(app.static_folder, path)))
+    except OSError:
+        # Fallback to current time so cache busting still occurs if the file is
+        # missing during development.
+        return int(time.time())
 
 # ─────────────────────────────────────────
 # Blueprint 登録
@@ -111,36 +123,226 @@ dirty_flags: Dict[str, bool] = {}
 # sid → (room, playerId)
 sid_to_player: Dict[str, tuple] = {}
 
-ACTION_STATE_MAP = {
-    'cut': 'chopped',
-    'bake': 'cooked',
-    'fry': 'cooked',
-    'grill': 'cooked',
-    'boil': 'boiled',
-    'mix': 'mixed',
-}
+DEFAULT_ACTION_ZONES = [
+    {'x': 100, 'y': 500, 'width': 150, 'height': 150, 'action': 'cut', 'display': '切っている…'},
+    {'x': 300, 'y': 500, 'width': 150, 'height': 150, 'action': 'bake', 'display': '焼いている…'},
+]
+DEFAULT_DELIVERY_ZONE = {'x': 700, 'y': 500, 'width': 150, 'height': 150}
+DEFAULT_GENERATOR = {'x': 750, 'y': 50, 'width': 96, 'height': 96}
+DEFAULT_CUT_DURATION = 2.0
+DEFAULT_BAKE_DURATION = 3.0
 
+def _clone_default_action_zones():
+    zones = []
+    for zone in DEFAULT_ACTION_ZONES:
+        cloned = dict(zone)
+        cloned['occupied'] = False
+        cloned.pop('cooking', None)
+        zones.append(cloned)
+    return zones
 
-def infer_state(action: str, fallback: str) -> str:
-    return ACTION_STATE_MAP.get(action, fallback or 'prepared')
+def sanitize_config(cfg: dict) -> dict:
+    cfg = dict(cfg or {})
+
+    ingredient_list = ingredient_types()
+    dishes = [get_dish_name(t) for t in ingredient_list]
+    cfg['dishList'] = dishes
+    cfg['orderMapping'] = {t: get_dish_name(t) for t in ingredient_list}
+
+    chopping = cfg.pop('choppingZones', []) or []
+    baking = cfg.pop('bakingZones', []) or []
+    source_zones = list(cfg.get('actionZones', []))
+    for zone in chopping:
+        cloned = dict(zone)
+        cloned['action'] = 'cut'
+        source_zones.append(cloned)
+    for zone in baking:
+        cloned = dict(zone)
+        cloned['action'] = 'bake'
+        source_zones.append(cloned)
+
+    sanitized_zones = []
+    for zone in source_zones:
+        action = zone.get('action')
+        if action not in ('cut', 'bake'):
+            continue
+        cloned = dict(zone)
+        cloned['action'] = action
+        cloned['display'] = zone.get('display') or ('切っている…' if action == 'cut' else '焼いている…')
+        cloned['width'] = zone.get('width', 150)
+        cloned['height'] = zone.get('height', 150)
+        cloned['occupied'] = False
+        cloned.pop('cooking', None)
+        sanitized_zones.append(cloned)
+
+    if not sanitized_zones:
+        sanitized_zones = _clone_default_action_zones()
+
+    cfg['actionZones'] = sanitized_zones
+
+    delivery = dict(cfg.get('deliveryZone') or {})
+    if not delivery:
+        delivery = dict(DEFAULT_DELIVERY_ZONE)
+    else:
+        delivery.setdefault('width', DEFAULT_DELIVERY_ZONE['width'])
+        delivery.setdefault('height', DEFAULT_DELIVERY_ZONE['height'])
+        delivery.setdefault('x', DEFAULT_DELIVERY_ZONE['x'])
+        delivery.setdefault('y', DEFAULT_DELIVERY_ZONE['y'])
+    cfg['deliveryZone'] = delivery
+
+    try:
+        cfg['cutDuration'] = float(cfg.get('cutDuration', DEFAULT_CUT_DURATION) or DEFAULT_CUT_DURATION)
+    except (TypeError, ValueError):
+        cfg['cutDuration'] = DEFAULT_CUT_DURATION
+    try:
+        cfg['bakeDuration'] = float(cfg.get('bakeDuration', DEFAULT_BAKE_DURATION) or DEFAULT_BAKE_DURATION)
+    except (TypeError, ValueError):
+        cfg['bakeDuration'] = DEFAULT_BAKE_DURATION
+
+    choices = list(cfg['orderMapping'].keys()) or ingredient_list
+
+    sanitized_generators = []
+    for fg in cfg.get('foodGenerators', []):
+        cloned = dict(fg)
+        cloned.setdefault('width', DEFAULT_GENERATOR['width'])
+        cloned.setdefault('height', DEFAULT_GENERATOR['height'])
+        cloned.setdefault('x', DEFAULT_GENERATOR['x'])
+        cloned.setdefault('y', DEFAULT_GENERATOR['y'])
+        if cloned.get('nextFood') not in choices:
+            cloned['nextFood'] = random.choice(choices)
+        sanitized_generators.append(cloned)
+
+    if not sanitized_generators:
+        gen = dict(DEFAULT_GENERATOR)
+        gen['nextFood'] = random.choice(choices)
+        sanitized_generators.append(gen)
+
+    cfg['foodGenerators'] = sanitized_generators
+
+    cfg.setdefault('movingObstacles', [])
+    cfg.setdefault('staticObstacles', [])
+    cfg.setdefault('transferObjects', [])
+
+    return cfg
 
 # ─────────────────────────────────────────
 # ユーティリティ関数
 # ─────────────────────────────────────────
+_flush_lock = Lock()
+_flush_pending = False
+
+
 def mark_dirty(room: str):
     dirty_flags[room] = True
+    schedule_flush()
+
 
 def flush_dirty():
     for room in list(dirty_flags.keys()):
+        if room not in rooms:
+            dirty_flags.pop(room, None)
+            continue
         state = asdict(rooms[room])
+        state['serverTime'] = time.time()
         socketio.emit('state_update', state, room=room)
         dirty_flags.pop(room, None)
 
-def coalesce_broadcast_loop():
-    BROADCAST_INTERVAL = 1/30  # 30 FPS
-    while True:
-        socketio.sleep(BROADCAST_INTERVAL)
-        flush_dirty()
+
+def schedule_flush(delay: float = 1 / 30):
+    global _flush_pending
+    with _flush_lock:
+        if _flush_pending:
+            return
+        _flush_pending = True
+
+    def runner():
+        global _flush_pending
+        try:
+            socketio.sleep(delay)
+            flush_dirty()
+        finally:
+            with _flush_lock:
+                _flush_pending = False
+
+    socketio.start_background_task(runner)
+
+
+def _coerce_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _item_from_snapshot(data: dict, fallback_id: int) -> Item:
+    item_id = _coerce_int(data.get('id'), fallback_id)
+    return Item(
+        id=item_id,
+        type=str(data.get('type') or ''),
+        x=_coerce_float(data.get('x'), 0.0),
+        y=_coerce_float(data.get('y'), 0.0),
+        state=str(data.get('state') or 'raw'),
+        display=data.get('display') or None,
+    )
+
+
+def _apply_client_state(room: str, snapshot: dict):
+    rs = rooms[room]
+    players = snapshot.get('players') or {}
+    new_players: Dict[str, Player] = {}
+    for pid, pdata in players.items():
+        existing = rs.players.get(pid, Player(base_image=pid, image=pid))
+        existing.x = _coerce_float(pdata.get('x'), existing.x)
+        existing.y = _coerce_float(pdata.get('y'), existing.y)
+        if pdata.get('base_image'):
+            existing.base_image = str(pdata.get('base_image'))
+        if pdata.get('image'):
+            existing.image = str(pdata.get('image'))
+        item_payload = pdata.get('currentItem')
+        if isinstance(item_payload, dict):
+            existing.currentItem = _item_from_snapshot(item_payload, rs.nextItemId)
+        else:
+            existing.currentItem = None
+        new_players[pid] = existing
+
+    rs.players = new_players
+
+    items_payload = snapshot.get('items') or []
+    new_items = []
+    for item in items_payload:
+        if not isinstance(item, dict):
+            continue
+        new_items.append(_item_from_snapshot(item, rs.nextItemId))
+    rs.items = new_items
+
+    if snapshot.get('orders') is not None:
+        orders = []
+        for order in snapshot.get('orders') or []:
+            if isinstance(order, dict):
+                orders.append(dict(order))
+        rs.orders = orders
+    rs.score = _coerce_int(snapshot.get('score'), rs.score)
+    rs.timer = _coerce_int(snapshot.get('timer'), rs.timer)
+    rs.gameOver = bool(snapshot.get('gameOver', rs.gameOver))
+
+    if snapshot.get('nextItemId') is not None:
+        rs.nextItemId = _coerce_int(snapshot.get('nextItemId'), rs.nextItemId)
+    elif rs.items:
+        rs.nextItemId = max(itm.id for itm in rs.items) + 1
+
+    cfg = snapshot.get('config')
+    if isinstance(cfg, dict):
+        rs.config = sanitize_config(cfg)
+
+    rs.clientManaged = True
+
 
 def in_zone(x: float, y: float, zone: dict) -> bool:
     return (
@@ -150,18 +352,7 @@ def in_zone(x: float, y: float, zone: dict) -> bool:
 
 
 def initialize_room(room: str, config: dict = None):
-    cfg = config or get_default_config()
-    if 'actionZones' not in cfg:
-        cfg['actionZones'] = []
-    for z in cfg.pop('choppingZones', []):
-        z.update({'action': 'cut', 'display': '切っている…'})
-        cfg['actionZones'].append(z)
-    for z in cfg.pop('bakingZones', []):
-        z.update({'action': 'bake', 'display': '焼いている…'})
-        cfg['actionZones'].append(z)
-    for zone in cfg.get('actionZones', []):
-        zone.setdefault('occupied', False)
-        zone.pop('cooking', None)
+    cfg = sanitize_config(config or get_default_config())
     if isinstance(cfg.get('transferObjects'), str):
         cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
 
@@ -170,12 +361,18 @@ def initialize_room(room: str, config: dict = None):
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.orders = [build_order(cfg) for _ in range(3)]
 
+    item_choices = list(cfg['orderMapping'].keys())
     for _ in range(3):
+        if not item_choices:
+            break
+        item_type = random.choice(item_choices)
         itm = Item(
             id=rs.nextItemId,
-            type=random.choice(list(cfg['orderMapping'].keys())),
+            type=item_type,
             x=random.randint(50,750),
-            y=random.randint(50,550)
+            y=random.randint(50,550),
+            state='raw',
+            display=format_item_display(item_type, 'raw'),
         )
         rs.items.append(itm)
         rs.nextItemId += 1
@@ -212,7 +409,7 @@ def upload_image():
 # ─────────────────────────────────────────
 @bp.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', main_js_version=_static_mtime('main.js'))
 
 @bp.route('/editor')
 def editor():
@@ -254,6 +451,8 @@ def reset_room():
 # SocketIO イベント
 # ─────────────────────────────────────────
 def run_cooking_task(room: str, zone: dict, task: dict):
+    if room not in rooms or rooms[room].clientManaged:
+        return
     duration = max(float(task.get('duration', 1.0) or 0.0), 0.1)
     start = time.time()
     task['startedAt'] = start
@@ -293,8 +492,10 @@ def run_cooking_task(room: str, zone: dict, task: dict):
         state=task['result_state'],
     )
     rs.nextItemId += 1
-    if task.get('result_display'):
-        cooked.display = task['result_display']
+    display = task.get('result_display') or format_item_display(
+        task['result_type'], task['result_state']
+    )
+    cooked.display = display
     rs.items.append(cooked)
 
     zone['occupied'] = False
@@ -311,8 +512,13 @@ def on_join(data):
     pid = f"player{len(rs.players)+1}"
     rs.players[pid] = Player(base_image=pid, image=pid)
     sid_to_player[request.sid] = (room, pid)
+    is_host = False
+    if not rs.hostId:
+        rs.hostId = pid
+        rs.clientManaged = True
+        is_host = True
     mark_dirty(room)
-    return {'playerId': pid}
+    return {'playerId': pid, 'isHost': is_host, 'clientManaged': rs.clientManaged}
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -322,6 +528,10 @@ def on_disconnect():
     room, pid = info
     if room in rooms and pid in rooms[room].players:
         rooms[room].players.pop(pid)
+        rs = rooms[room]
+        if rs.hostId == pid:
+            rs.hostId = ''
+            rs.clientManaged = False
         mark_dirty(room)
 
 @socketio.on('update_config')
@@ -330,11 +540,9 @@ def on_update_config(data):
     if room not in rooms:
         initialize_room(room, cfg)
     else:
+        cfg = sanitize_config(cfg)
         if isinstance(cfg.get('transferObjects'), str):
             cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
-        for zone in cfg.get('actionZones', []):
-            zone.setdefault('occupied', False)
-            zone.pop('cooking', None)
         rooms[room].config = cfg
         mark_dirty(room)
 
@@ -343,14 +551,24 @@ def on_move(data):
     room, pid = data.get('room'), data.get('playerId')
     if room not in rooms or pid not in rooms[room].players:
         return
-    p = rooms[room].players[pid]
-    nx, ny = data.get('x'), data.get('y')
-    cfg = rooms[room].config
-    obs = cfg.get('movingObstacles', []) + cfg.get('staticObstacles', [])
-    if not any(in_zone(nx, ny, o) for o in obs):
-        p.x, p.y = nx, ny
-        if p.currentItem:
-            p.currentItem.x, p.currentItem.y = nx, ny
+    rs = rooms[room]
+    p = rs.players[pid]
+    try:
+        nx = float(data.get('x'))
+        ny = float(data.get('y'))
+    except (TypeError, ValueError):
+        return
+
+    p.x, p.y = nx, ny
+    if p.currentItem:
+        p.currentItem.x, p.currentItem.y = nx, ny
+    if rs.clientManaged:
+        socketio.emit('client_move', {
+            'playerId': pid,
+            'room': room,
+            'x': nx,
+            'y': ny,
+        }, room=room)
     mark_dirty(room)
 
 @socketio.on('interact')
@@ -359,109 +577,190 @@ def on_interact(data):
     if room not in rooms or pid not in rooms[room].players:
         return
     rs, p = rooms[room], rooms[room].players[pid]
-    x, y = p.x, p.y
+    if rs.clientManaged:
+        payload = {
+            'playerId': pid,
+            'room': room,
+            'x': data.get('x'),
+            'y': data.get('y'),
+        }
+        socketio.emit('client_interact', payload, room=room)
+        return
     cfg = rs.config
+
+    x, y = p.x, p.y
+    position_updated = False
+    if 'x' in data and 'y' in data:
+        try:
+            nx = float(data.get('x'))
+            ny = float(data.get('y'))
+        except (TypeError, ValueError):
+            nx = None
+            ny = None
+        if nx is not None and ny is not None:
+            x, y = nx, ny
+            p.x, p.y = nx, ny
+            if p.currentItem:
+                p.currentItem.x, p.currentItem.y = nx, ny
+            position_updated = True
 
     # アイテム取得 or 生成
     if p.currentItem is None:
-        for itm in rs.items:
+        for itm in list(rs.items):
             if ((itm.x - x)**2 + (itm.y - y)**2) ** 0.5 < 50:
                 p.currentItem = itm
                 rs.items.remove(itm)
                 mark_dirty(room)
                 return
+        food_choices = list(cfg.get('orderMapping', {}).keys()) or ingredient_types()
         for fg in cfg.get('foodGenerators', []):
-            if in_zone(x, y, fg):
-                new_itm = Item(
-                    id=rs.nextItemId,
-                    type=fg['nextFood'],
-                    x=x, y=y
-                )
-                rs.nextItemId += 1
-                p.currentItem = new_itm
-                fg['nextFood'] = random.choice(list(cfg['orderMapping']))
-                mark_dirty(room)
-                return
+            if not in_zone(x, y, fg):
+                continue
+            if not food_choices:
+                continue
+            next_type = fg.get('nextFood') if fg.get('nextFood') in food_choices else random.choice(food_choices)
+            new_itm = Item(
+                id=rs.nextItemId,
+                type=next_type,
+                x=x,
+                y=y,
+                state='raw',
+                display=format_item_display(next_type, 'raw'),
+            )
+            rs.nextItemId += 1
+            p.currentItem = new_itm
+            fg['nextFood'] = random.choice(food_choices)
+            mark_dirty(room)
+            return
+        if position_updated:
+            mark_dirty(room)
         return
 
-    # 調理ステップ
-    step = find_next_step(cfg, p.currentItem.type)
-    if step:
-        for zone in cfg['actionZones']:
-            if not zone['occupied'] and zone['action'] == step['action'] and in_zone(x, y, zone):
-                zone['occupied'] = True
-                itm = p.currentItem
-                p.currentItem = None
-                p.cooking = False
-                p.currentZone = None
-                p.image = p.base_image
+    # 調理ステップ (切る→焼く)
+    itm = p.currentItem
+    action_needed = None
+    result_state = None
+    duration = None
+    if itm.state in ('raw', None):
+        action_needed = 'cut'
+        result_state = 'chopped'
+        duration = cfg.get('cutDuration', DEFAULT_CUT_DURATION)
+    elif itm.state in ('chopped', 'cut'):
+        action_needed = 'bake'
+        result_state = 'cooked'
+        duration = cfg.get('bakeDuration', DEFAULT_BAKE_DURATION)
 
-                duration = float(step.get('time', 1.0) or 1.0)
-                cooking_id = uuid.uuid4().hex
-                task = {
-                    'id': cooking_id,
-                    'progress': 0.0,
-                    'duration': duration,
-                    'texture': getattr(itm, 'type', None),
-                    'itemType': getattr(itm, 'type', None),
-                    'displayText': zone.get('display') or '調理中…',
-                    'result_type': step['result'],
-                    'result_state': infer_state(step.get('action', ''), getattr(itm, 'state', 'raw')),
-                    'result_display': None,
-                    'startedAt': time.time(),
-                }
-                zone['cooking'] = task
+    if action_needed:
+        for zone in cfg.get('actionZones', []):
+            if zone.get('action') != action_needed or zone.get('occupied'):
+                continue
+            if not in_zone(x, y, zone):
+                continue
+            zone['occupied'] = True
+            p.currentItem = None
+            p.cooking = False
+            p.currentZone = None
+            p.image = p.base_image
 
-                socketio.start_background_task(
-                    run_cooking_task, room, zone, task
-                )
-                mark_dirty(room)
-                return
+            try:
+                duration_val = float(duration or 0)
+            except (TypeError, ValueError):
+                duration_val = DEFAULT_CUT_DURATION if action_needed == 'cut' else DEFAULT_BAKE_DURATION
+            if duration_val <= 0:
+                duration_val = DEFAULT_CUT_DURATION if action_needed == 'cut' else DEFAULT_BAKE_DURATION
+
+            cooking_id = uuid.uuid4().hex
+            task = {
+                'id': cooking_id,
+                'progress': 0.0,
+                'duration': duration_val,
+                'texture': getattr(itm, 'type', None),
+                'itemType': getattr(itm, 'type', None),
+                'displayText': zone.get('display') or ('切っている…' if action_needed == 'cut' else '焼いている…'),
+                'result_type': itm.type,
+                'result_state': result_state,
+                'result_display': format_item_display(itm.type, result_state),
+                'startedAt': time.time(),
+            }
+            zone['cooking'] = task
+
+            socketio.start_background_task(
+                run_cooking_task, room, zone, task
+            )
+            mark_dirty(room)
+            return
 
     # 配膳
-    if in_zone(x, y, cfg['deliveryZone']):
-        delivered = cfg['orderMapping'].get(p.currentItem.type, '不明')
+    delivery_zone = cfg.get('deliveryZone')
+    if delivery_zone and in_zone(x, y, delivery_zone):
+        if itm.state != 'cooked':
+            if position_updated:
+                mark_dirty(room)
+            return
+        delivered = cfg['orderMapping'].get(itm.type, '不明')
         expected = rs.orders[0]['dish'] if rs.orders else None
         if delivered == expected:
             rs.score += 10
             rs.orders.pop(0)
             rs.orders.append(build_order(cfg))
         else:
-            rs.score -= cfg['wrongOrderPenalty']
+            rs.score -= cfg.get('wrongOrderPenalty', 5)
         p.currentItem = None
         mark_dirty(room)
         return
 
     # 置く or 転送
-    itm = p.currentItem
     itm.x, itm.y = x, y
     itm.id = rs.nextItemId
     rs.nextItemId += 1
+    itm.display = format_item_display(itm.type, itm.state)
     for tr in cfg.get('transferObjects', []):
-        if in_zone(x, y, tr['sourceZone']):
-            itm.x, itm.y = tr['destination']['x'], tr['destination']['y']
+        src = tr.get('sourceZone')
+        dest = tr.get('destination')
+        if not src or not dest:
+            continue
+        if in_zone(x, y, src):
+            itm.x = dest.get('x', itm.x)
+            itm.y = dest.get('y', itm.y)
             break
     rs.items.append(itm)
     p.currentItem = None
+    mark_dirty(room)
+
+
+@socketio.on('client_state')
+def on_client_state(data):
+    room, pid = data.get('room'), data.get('playerId')
+    if room not in rooms or pid not in rooms[room].players:
+        return
+    rs = rooms[room]
+    if rs.hostId and rs.hostId != pid:
+        return
+    snapshot = data.get('state')
+    if not isinstance(snapshot, dict):
+        return
+    if not rs.hostId:
+        rs.hostId = pid
+    _apply_client_state(room, snapshot)
     mark_dirty(room)
 
 # ─────────────────────────────────────────
 # ゲームタイマー起動
 # ─────────────────────────────────────────
 app.register_blueprint(bp)
-socketio.start_background_task(coalesce_broadcast_loop)
 def game_timer_task():
     while True:
         socketio.sleep(1)
         for room in list(rooms.keys()):
             rs = rooms[room]
+            if rs.clientManaged:
+                continue
             if rs.timer > 0:
                 rs.timer -= 1
                 if rs.timer <= 0:
                     rs.gameOver = True
                     rs.items.clear()
             update_orders(room, rooms)
-            process_combinations(room, rooms, Item)
             mark_dirty(room)
             if rs.gameOver and not rs.resetScheduled:
                 rs.resetScheduled = True

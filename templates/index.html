@@ -2,23 +2,39 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1, viewport-fit=cover"
+/>
 <title>Connect Action</title>
 
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
 <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-<script src="{{ url_for('static', filename='main.js') }}"></script>
+<script
+  type="module"
+  src="{{ url_for('static', filename='main.js', v=main_js_version) }}"
+></script>
 </head>
 <body>
   <div id="start-overlay">
-    <h2>ゲーム開始</h2>
-    <label>ルーム名: <input type="text" id="roomName" value="room1" /></label><br />
+    <h1>ゲーム開始</h1>
+    <label class="form-field">
+      <span class="form-field__label">ルーム名</span>
+      <input
+        type="text"
+        id="roomName"
+        value="room1"
+        inputmode="latin"
+        autocomplete="off"
+      />
+    </label>
     <img
       id="startButton"
       src="/static/assets/start_button.png"
       alt="スタート"
-      style="cursor: pointer"
+      class="start-button"
     />
-    <p><a href="/editor">設定モードへ</a></p>
+    <p class="start-overlay__link"><a href="/editor">設定モードへ</a></p>
   </div>
 
   <div id="game-container" style="display: none"></div>
@@ -30,26 +46,59 @@
     <div id="timer">タイマー: 60</div>
     <div id="score">スコア: 0</div>
     <div id="inventory">持ち物: なし</div>
+    <div
+      id="game-over-message"
+      class="game-over hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <div id="mobile-controls" class="mobile-controls" aria-hidden="true">
+      <div class="mobile-controls__surface mobile-controls__surface--move">
+        <div
+          class="mobile-controls__cluster mobile-controls__cluster--dpad"
+          role="group"
+          aria-label="移動操作"
+        >
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--up"
+            data-action="up"
+            aria-label="上に移動"
+          >▲</button>
+          <span class="mobile-controls__spacer" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--right"
+            data-action="right"
+            aria-label="右に移動"
+          >▶</button>
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--left"
+            data-action="left"
+            aria-label="左に移動"
+          >◀</button>
+          <span class="mobile-controls__spacer" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="mobile-controls__button mobile-controls__button--down"
+            data-action="down"
+            aria-label="下に移動"
+          >▼</button>
+        </div>
+        <span class="mobile-controls__label">移動</span>
+      </div>
+      <div class="mobile-controls__surface mobile-controls__surface--action">
+        <button
+          type="button"
+          class="mobile-controls__button mobile-controls__button--action"
+          data-action="interact"
+          aria-label="決定 / アクション"
+        >アクション</button>
+        <span class="mobile-controls__label">決定</span>
+      </div>
+    </div>
   </div>
 
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      document
-        .getElementById("startButton")
-        .addEventListener("click", () => {
-          window.roomName =
-            document.getElementById("roomName").value || "room1";
-          window.playerId = ""; // サーバ側で自動採番
-          document.getElementById("start-overlay").style.display = "none";
-          document.getElementById("game-container").style.display = "block";
-          document.getElementById("ui").style.display = "block";
-
-          // 画面表示を切り替えたあとにゲームを起動
-          if (window.startGame) {
-            window.startGame();
-          }
-        });
-    });
-  </script>
 </body>
 </html>

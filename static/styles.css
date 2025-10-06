@@ -1,150 +1,405 @@
 body {
-    margin: 0;
-    padding: 0;
-    background-color: #e0f7fa;
-    font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0 16px 32px;
+  background-color: #e0f7fa;
+  font-family: "Noto Sans JP", Arial, sans-serif;
+  color: #3e2723;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+#game-container {
+  width: min(100%, 800px);
+  aspect-ratio: 4 / 3;
+  margin: 16px auto;
+  background-color: #000;
+  border: 4px solid #ff7043;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+#game-container canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#ui {
+  width: min(100%, 840px);
+  margin: 0 auto 24px;
+  text-align: center;
+  background-color: #fff3e0;
+  padding: 16px;
+  border: 2px solid #ff7043;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-sizing: border-box;
+}
+
+#orders-panel {
+  margin: 0 auto 16px auto;
+  width: 100%;
+  background: #ffe0b2;
+  border: 2px solid #ff7043;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  text-align: left;
+  box-sizing: border-box;
+}
+
+
+#orders-panel h3 {
+  margin: 0 0 12px 0;
+  font-size: 24px;
+  color: #bf360c;
+}
+
+
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+
+.order-card {
+  background: #ffffff;
+  border: 1px solid #ffcc80;
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+
+.order-card__thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  background: #fff3e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px #ffcc80;
+  flex-shrink: 0;
+}
+
+
+.order-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+
+.order-card__thumb--placeholder::before {
+  content: "?";
+  font-size: 28px;
+  color: #d84315;
+  font-weight: bold;
+}
+
+
+.order-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+
+.order-card__name {
+  font-size: 20px;
+  font-weight: bold;
+  color: #d84315;
+}
+
+
+.order-card__timer {
+  width: 100%;
+  height: 18px;
+  background: #ffe0b2;
+  border-radius: 9px;
+  overflow: hidden;
+  position: relative;
+}
+
+
+.order-card__timer-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #66bb6a, #43a047);
+  transition: width 0.2s ease-out;
+}
+
+
+#timer,
+#score,
+#inventory {
+  font-size: clamp(18px, 3vw, 24px);
+  margin: 6px 0;
+  color: #bf360c;
+  font-weight: bold;
+}
+
+.game-over {
+  margin: 16px auto 0;
+  max-width: 480px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #ffe082, #ffd54f);
+  border: 2px solid #ff7043;
+  border-radius: 12px;
+  font-size: clamp(18px, 3vw, 24px);
+  font-weight: bold;
+  color: #bf360c;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+#start-overlay {
+  width: min(90%, 420px);
+  margin: clamp(24px, 12vh, 72px) auto;
+  padding: 24px;
+  background-color: #ffffff;
+  border: 2px solid #ff7043;
+  border-radius: 16px;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+#start-overlay h1 {
+  margin: 0 0 16px 0;
+  font-size: clamp(24px, 5vw, 32px);
+  color: #d84315;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 16px;
+  color: #4e342e;
+}
+
+.form-field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ffcc80;
+  border-radius: 8px;
+  font-size: 18px;
+  box-sizing: border-box;
+}
+
+.start-button {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  display: block;
+  margin: 16px auto;
+  cursor: pointer;
+}
+
+.start-overlay__link {
+  margin: 0;
+  font-size: 16px;
+}
+
+
+.mobile-controls {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+  transform: translateX(-50%);
+  width: min(100%, 780px);
+  padding: 0 clamp(12px, 4vw, 32px);
+  display: none;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: clamp(16px, 6vw, 48px);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.mobile-controls--visible {
+  display: flex;
+}
+
+.mobile-controls__surface {
+  pointer-events: auto;
+  background: rgba(255, 243, 224, 0.92);
+  border: 1px solid rgba(255, 112, 67, 0.35);
+  border-radius: 28px;
+  padding: clamp(12px, 4vw, 20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(6px);
+  touch-action: none;
+  user-select: none;
+}
+
+.mobile-controls__surface--action {
+  padding: clamp(16px, 5vw, 24px);
+}
+
+.mobile-controls__cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.mobile-controls__cluster--dpad {
+  --dpad-size: clamp(56px, 18vw, 88px);
+  display: grid;
+  grid-template-columns: repeat(3, var(--dpad-size));
+  grid-template-rows: repeat(3, var(--dpad-size));
+  gap: clamp(8px, 3vw, 14px);
+  justify-items: center;
+  align-items: center;
+  touch-action: none;
+  user-select: none;
+}
+
+.mobile-controls__spacer {
+  width: var(--dpad-size);
+  height: var(--dpad-size);
+}
+
+.mobile-controls__button {
+  border: none;
+  background: radial-gradient(circle at 30% 30%, #ffffff 0%, #ffcc80 60%, #ffb74d 100%);
+  color: #bf360c;
+  font-weight: bold;
+  border-radius: 50%;
+  font-size: clamp(18px, 5vw, 28px);
+  width: var(--dpad-size);
+  height: var(--dpad-size);
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.25);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  touch-action: none;
+  user-select: none;
+}
+
+.mobile-controls__button--action {
+  width: clamp(80px, 26vw, 140px);
+  height: clamp(80px, 26vw, 140px);
+  font-size: clamp(18px, 5vw, 26px);
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #ffe0d6 0%, #ff8a65 55%, #ff7043 100%);
+  color: #ffffff;
+  letter-spacing: 0.08em;
+  padding: 0 clamp(12px, 3vw, 24px);
+}
+
+.mobile-controls__button.is-active,
+.mobile-controls__button:active {
+  transform: translateY(2px) scale(0.97);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.22);
+}
+
+.mobile-controls__label {
+  font-size: clamp(12px, 3.4vw, 16px);
+  color: #bf360c;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 768px) {
+  body {
+    padding: 0 12px 24px;
   }
-  
-  #game-container {
-    width: 800px;
-    height: 600px;
-    margin: 20px auto;
-    background-color: #000;
-    border: 4px solid #ff7043;
-  }
-  
+
   #ui {
-    width: 800px;
-    margin: 0 auto;
-    text-align: center;
-    background-color: #fff3e0;
-    padding: 10px;
-    border: 2px solid #ff7043;
+    padding: 12px;
   }
-  
+
   #orders-panel {
-    margin: 0 auto 10px auto;
-    max-width: 760px;
-    background: #ffe0b2;
-    border: 2px solid #ff7043;
-    border-radius: 8px;
-    padding: 10px 15px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-    text-align: left;
-  }
-
-  #orders-panel h3 {
-    margin: 0 0 10px 0;
-    font-size: 24px;
-    color: #bf360c;
-  }
-
-  .order-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    padding: 12px;
   }
 
   .order-card {
-    background: #ffffff;
-    border: 1px solid #ffcc80;
-    border-radius: 6px;
-    padding: 10px 12px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 16px;
+    gap: 12px;
+    padding: 12px;
   }
 
   .order-card__thumb {
-    width: 64px;
-    height: 64px;
-    border-radius: 8px;
-    background: #fff3e0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    box-shadow: inset 0 0 0 1px #ffcc80;
-    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
   }
 
-  .order-card__thumb img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
+  #timer,
+  #score,
+  #inventory {
+    font-size: clamp(16px, 4vw, 20px);
   }
 
-  .order-card__thumb--placeholder::before {
-    content: "?";
-    font-size: 28px;
-    color: #d84315;
-    font-weight: bold;
+  .mobile-controls {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    width: min(100%, 700px);
+    gap: clamp(16px, 8vw, 40px);
   }
+}
 
-  .order-card__details {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    flex: 1;
-  }
-
-  .order-card__name {
-    font-size: 20px;
-    font-weight: bold;
-    color: #d84315;
-  }
-
-  .order-card__timer {
-    width: 100%;
-    height: 18px;
-    background: #ffe0b2;
-    border-radius: 9px;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .order-card__timer-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 100%;
-    background: linear-gradient(90deg, #66bb6a, #43a047);
-    transition: width 0.2s ease-out;
-  }
-
-  #timer, #score, #inventory {
-    font-size: 24px;
-    margin: 5px;
-    color: #bf360c;
-    font-weight: bold;
-  }
-  
+@media (max-width: 480px) {
   #start-overlay {
-    width: 400px;
-    margin: 100px auto;
-    padding: 20px;
-    background-color: #fff;
-    border: 2px solid #ff7043;
-    text-align: center;
+    padding: 20px 16px;
   }
-  
-  #startButton {
-    width: 200px;
-    height: auto;
-    display: block;
-    margin: 20px auto;
+}
+
+@media (max-width: 560px) {
+  .mobile-controls {
+    left: 0;
+    transform: none;
+    width: 100%;
+    padding: 0 clamp(8px, 6vw, 24px);
+    gap: clamp(12px, 5vw, 24px);
   }
-  
-  form fieldset {
-    margin-bottom: 15px;
-    padding: 10px;
+
+  .mobile-controls__surface {
+    flex: 1;
+    padding: clamp(12px, 6vw, 18px);
   }
-  
-  #previewCanvas {
-    margin: 20px auto;
-    display: block;
+
+  .mobile-controls__surface--action {
+    align-items: stretch;
   }
+
+  .mobile-controls__button--action {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .mobile-controls__surface {
+    gap: 10px;
+  }
+
+  .mobile-controls__cluster--dpad {
+    --dpad-size: clamp(52px, 24vw, 72px);
+  }
+}
+
+form fieldset {
+  margin-bottom: 15px;
+  padding: 10px;
+}
+
+#previewCanvas {
+  margin: 20px auto;
+  display: block;
+}
 
 .hidden {
   display: none;
