@@ -136,9 +136,11 @@ export class Renderer {
             ? 'rgba(255, 183, 77, 0.35)'
             : 'rgba(129, 212, 250, 0.35)';
         this.fillZone(zone, fill);
+        const stroke = zone.occupied ? '#ff7043' : '#4dd0e1';
+        this.strokeZone(zone, { color: stroke, width: 2 });
+      } else if (zone.occupied) {
+        this.overlayZone(zone, 'rgba(255, 112, 67, 0.35)');
       }
-      const stroke = zone.occupied ? '#ff7043' : '#4dd0e1';
-      this.strokeZone(zone, { color: stroke, width: 2 });
     });
   }
 
@@ -147,8 +149,8 @@ export class Renderer {
     const drawn = this.drawZoneTexture(zone, zone.texture || 'delivery_zone');
     if (!drawn) {
       this.fillZone(zone, 'rgba(255, 202, 64, 0.28)');
+      this.strokeZone(zone, { color: '#ffca28', dash: [8, 4], width: 3 });
     }
-    this.strokeZone(zone, { color: '#ffca28', dash: [8, 4], width: 3 });
   }
 
   renderFoodGenerators(generators) {
@@ -156,8 +158,8 @@ export class Renderer {
       const drawn = this.drawZoneTexture(fg, fg.texture || 'food_generator');
       if (!drawn) {
         this.fillZone(fg, 'rgba(129, 199, 132, 0.35)');
+        this.strokeZone(fg, { color: '#66bb6a', width: 2 });
       }
-      this.strokeZone(fg, { color: '#66bb6a', width: 2 });
 
       const img = this.assets.get(fg.nextFood);
       if (img && img.complete && img.naturalWidth > 0) {
@@ -179,8 +181,8 @@ export class Renderer {
       const drawn = this.drawZoneTexture(ob, ob.texture || 'static_obstacle');
       if (!drawn) {
         this.fillZone(ob, 'rgba(120, 144, 156, 0.5)');
+        this.strokeZone(ob, { color: 'rgba(55, 71, 79, 0.6)', width: 2 });
       }
-      this.strokeZone(ob, { color: 'rgba(55, 71, 79, 0.6)', width: 2 });
     });
   }
 
@@ -189,8 +191,8 @@ export class Renderer {
       const drawn = this.drawZoneTexture(ob, ob.texture || 'moving_obstacle');
       if (!drawn) {
         this.fillZone(ob, 'rgba(38, 166, 154, 0.45)');
+        this.strokeZone(ob, { color: 'rgba(0, 150, 136, 0.75)', width: 2 });
       }
-      this.strokeZone(ob, { color: 'rgba(0, 150, 136, 0.75)', width: 2 });
     });
   }
 
@@ -204,12 +206,12 @@ export class Renderer {
         );
         if (!drawn) {
           this.fillZone(tr.sourceZone, 'rgba(77, 208, 225, 0.35)');
+          this.strokeZone(tr.sourceZone, {
+            color: 'rgba(77, 208, 225, 0.9)',
+            dash: [10, 6],
+            width: 2,
+          });
         }
-        this.strokeZone(tr.sourceZone, {
-          color: 'rgba(77, 208, 225, 0.9)',
-          dash: [10, 6],
-          width: 2,
-        });
       }
       if (tr.destination) {
         const drawn = this.drawZoneTexture(
@@ -218,14 +220,27 @@ export class Renderer {
         );
         if (!drawn) {
           this.fillZone(tr.destination, 'rgba(3, 169, 244, 0.35)');
+          this.strokeZone(tr.destination, {
+            color: 'rgba(3, 169, 244, 0.9)',
+            dash: [10, 6],
+            width: 2,
+          });
         }
-        this.strokeZone(tr.destination, {
-          color: 'rgba(3, 169, 244, 0.9)',
-          dash: [10, 6],
-          width: 2,
-        });
       }
     });
+  }
+
+  overlayZone(zone, color) {
+    if (!zone) return;
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(
+      zone.x - zone.width / 2,
+      zone.y - zone.height / 2,
+      zone.width,
+      zone.height
+    );
+    this.ctx.restore();
   }
 
   renderItems(items) {
