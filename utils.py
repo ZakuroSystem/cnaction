@@ -1,7 +1,6 @@
 import os
 import random
 import json
-import itertools
 import datetime
 import shutil
 import time
@@ -12,6 +11,28 @@ from flask import send_file
 
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
+
+
+INGREDIENT_DEFS = {
+    'ingredient_tomato': {
+        'name': 'トマト',
+        'dish': 'トマト(切って焼いたもの)',
+    },
+    'ingredient_lettuce': {
+        'name': 'レタス',
+        'dish': 'レタス(切って焼いたもの)',
+    },
+    'ingredient_bread': {
+        'name': 'バンズ',
+        'dish': 'バンズ(切って焼いたもの)',
+    },
+}
+
+STATE_LABELS = {
+    'raw': '生',
+    'chopped': 'カット済み',
+    'cooked': '焼き上がり',
+}
 
 
 def _normalize_static_url(path: str) -> Optional[str]:
@@ -39,6 +60,20 @@ def resolve_order_item_type(cfg: dict, dish: str) -> Optional[str]:
         if mapped_dish == dish:
             return item_type
     return None
+
+
+def ingredient_types() -> List[str]:
+    return list(INGREDIENT_DEFS.keys())
+
+
+def get_dish_name(item_type: str) -> Optional[str]:
+    return INGREDIENT_DEFS.get(item_type, {}).get('dish')
+
+
+def format_item_display(item_type: str, state: str) -> str:
+    base = INGREDIENT_DEFS.get(item_type, {}).get('name', item_type)
+    label = STATE_LABELS.get(state, state)
+    return f'{base} ({label})'
 
 
 def resolve_item_image(cfg: dict, item_type: Optional[str]) -> Optional[str]:
@@ -89,6 +124,7 @@ def build_order(cfg: dict) -> dict:
 # Configuration helpers
 
 def get_default_config() -> dict:
+    ingredient_list = ingredient_types()
     return {
         'gameTime': 150,
         'orderTimeLimit': 90,
@@ -104,24 +140,13 @@ def get_default_config() -> dict:
         'staticObstacles': [{'x': 600, 'y': 300, 'width': 96, 'height': 96}],
         'foodGenerators': [{
             'x': 750, 'y': 50, 'width': 96, 'height': 96,
-            'nextFood': random.choice(
-                ['ingredient_tomato', 'ingredient_lettuce', 'ingredient_bread']
-            )
+            'nextFood': random.choice(ingredient_list)
         }],
         'transferObjects': [],
-        'customItems': [],
-        'combinationRecipes': [],
-        'cookingRecipes': [],
-        'dishList': [
-            'トマト(切って焼いたもの)',
-            'レタス(切って焼いたもの)',
-            'バンズ(切って焼いたもの)'
-        ],
-        'orderMapping': {
-            'ingredient_tomato': 'トマト(切って焼いたもの)',
-            'ingredient_lettuce': 'レタス(切って焼いたもの)',
-            'ingredient_bread': 'バンズ(切って焼いたもの)'
-        }
+        'dishList': [INGREDIENT_DEFS[t]['dish'] for t in ingredient_list],
+        'orderMapping': {t: INGREDIENT_DEFS[t]['dish'] for t in ingredient_list},
+        'cutDuration': 2.0,
+        'bakeDuration': 3.0,
     }
 
 # Utility functions
@@ -150,34 +175,6 @@ def parse_transfer_objects(s: str) -> list:
             pass
     return objs
 
-def find_next_step(cfg: dict, item_type: str) -> Optional[dict]:
-    """Return the next cooking step for the given item type.
-
-    The previous implementation attempted to concatenate a ``zip`` object with a
-    list, which raised ``TypeError`` and prevented any cooking action from being
-    triggered.  This rewritten version iterates over each recipe and checks the
-    base item and all subsequent steps sequentially.
-    """
-
-    recipes = cfg.get('cookingRecipes') or []
-    if not isinstance(recipes, list):
-        return None
-
-    for recipe in recipes:
-        prev_result = recipe.get('base')
-        steps = recipe.get('steps') or []
-        if not isinstance(steps, list):
-            continue
-        for step in steps:
-            if prev_result == item_type:
-                return {
-                    'action': step.get('action'),
-                    'result': step.get('result'),
-                    'time': step.get('time'),
-                }
-            prev_result = step.get('result')
-    return None
-
 def update_orders(room: str, rooms: Dict[str, 'RoomState']):
     rs = rooms[room]
     cfg = rs.config
@@ -198,41 +195,6 @@ def update_orders(room: str, rooms: Dict[str, 'RoomState']):
                     o['image'] = image
             new_orders.append(o)
     rs.orders = new_orders
-
-def process_combinations(room: str, rooms: Dict[str, 'RoomState'], Item):
-    rs = rooms[room]
-    items = rs.items
-    to_remove = set()
-    new_items: List[Item] = []
-    for rec in rs.config.get('combinationRecipes', []):
-        req = rec['ingredients']
-        thresh = rec['threshold']
-        result = rec['result']
-        mapping = {t: [i for i, it in enumerate(items) if it.type == t] for t in req}
-        if all(mapping.get(t) for t in req):
-            for combo in itertools.product(*(mapping[t] for t in req)):
-                if len(set(combo)) < len(combo):
-                    continue
-                coords = [(items[i].x, items[i].y) for i in combo]
-                if all(
-                    ((x1-x2)**2 + (y1-y2)**2) ** 0.5 <= thresh
-                    for (x1,y1),(x2,y2) in itertools.combinations(coords,2)
-                ):
-                    for i in combo:
-                        to_remove.add(i)
-                    avgx = sum(x for x,_ in coords)/len(coords)
-                    avgy = sum(y for _,y in coords)/len(coords)
-                    new_items.append(Item(
-                        id=rs.nextItemId,
-                        type=result,
-                        x=avgx,
-                        y=avgy
-                    ))
-                    rs.nextItemId += 1
-                    break
-    if to_remove:
-        rs.items = [it for idx, it in enumerate(items) if idx not in to_remove]
-        rs.items.extend(new_items)
 
 def export_config_response(room: str, rooms: Dict[str, 'RoomState']):
     cfg = rooms.get(room).config if room in rooms else get_default_config()

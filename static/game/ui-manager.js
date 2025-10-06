@@ -58,7 +58,7 @@ export class UIManager {
       const stateLabel =
         item.state === 'raw'
           ? '生'
-          : item.state === 'chopped'
+          : item.state === 'chopped' || item.state === 'cut'
           ? '切った'
           : item.state === 'cooked'
           ? '調理済み'

@@ -14,8 +14,8 @@ from flask_socketio import SocketIO, join_room
 
 from utils import (
     get_default_config, in_zone, parse_transfer_objects,
-    find_next_step, update_orders, process_combinations,
-    export_config_response, save_uploaded_file, build_order
+    update_orders, export_config_response, save_uploaded_file, build_order,
+    ingredient_types, get_dish_name, format_item_display
 )
 from models import Item, Player, RoomState
 
@@ -123,18 +123,107 @@ dirty_flags: Dict[str, bool] = {}
 # sid → (room, playerId)
 sid_to_player: Dict[str, tuple] = {}
 
-ACTION_STATE_MAP = {
-    'cut': 'chopped',
-    'bake': 'cooked',
-    'fry': 'cooked',
-    'grill': 'cooked',
-    'boil': 'boiled',
-    'mix': 'mixed',
-}
+DEFAULT_ACTION_ZONES = [
+    {'x': 100, 'y': 500, 'width': 150, 'height': 150, 'action': 'cut', 'display': '切っている…'},
+    {'x': 300, 'y': 500, 'width': 150, 'height': 150, 'action': 'bake', 'display': '焼いている…'},
+]
+DEFAULT_DELIVERY_ZONE = {'x': 700, 'y': 500, 'width': 150, 'height': 150}
+DEFAULT_GENERATOR = {'x': 750, 'y': 50, 'width': 96, 'height': 96}
+DEFAULT_CUT_DURATION = 2.0
+DEFAULT_BAKE_DURATION = 3.0
 
+def _clone_default_action_zones():
+    zones = []
+    for zone in DEFAULT_ACTION_ZONES:
+        cloned = dict(zone)
+        cloned['occupied'] = False
+        cloned.pop('cooking', None)
+        zones.append(cloned)
+    return zones
 
-def infer_state(action: str, fallback: str) -> str:
-    return ACTION_STATE_MAP.get(action, fallback or 'prepared')
+def sanitize_config(cfg: dict) -> dict:
+    cfg = dict(cfg or {})
+
+    ingredient_list = ingredient_types()
+    dishes = [get_dish_name(t) for t in ingredient_list]
+    cfg['dishList'] = dishes
+    cfg['orderMapping'] = {t: get_dish_name(t) for t in ingredient_list}
+
+    chopping = cfg.pop('choppingZones', []) or []
+    baking = cfg.pop('bakingZones', []) or []
+    source_zones = list(cfg.get('actionZones', []))
+    for zone in chopping:
+        cloned = dict(zone)
+        cloned['action'] = 'cut'
+        source_zones.append(cloned)
+    for zone in baking:
+        cloned = dict(zone)
+        cloned['action'] = 'bake'
+        source_zones.append(cloned)
+
+    sanitized_zones = []
+    for zone in source_zones:
+        action = zone.get('action')
+        if action not in ('cut', 'bake'):
+            continue
+        cloned = dict(zone)
+        cloned['action'] = action
+        cloned['display'] = zone.get('display') or ('切っている…' if action == 'cut' else '焼いている…')
+        cloned['width'] = zone.get('width', 150)
+        cloned['height'] = zone.get('height', 150)
+        cloned['occupied'] = False
+        cloned.pop('cooking', None)
+        sanitized_zones.append(cloned)
+
+    if not sanitized_zones:
+        sanitized_zones = _clone_default_action_zones()
+
+    cfg['actionZones'] = sanitized_zones
+
+    delivery = dict(cfg.get('deliveryZone') or {})
+    if not delivery:
+        delivery = dict(DEFAULT_DELIVERY_ZONE)
+    else:
+        delivery.setdefault('width', DEFAULT_DELIVERY_ZONE['width'])
+        delivery.setdefault('height', DEFAULT_DELIVERY_ZONE['height'])
+        delivery.setdefault('x', DEFAULT_DELIVERY_ZONE['x'])
+        delivery.setdefault('y', DEFAULT_DELIVERY_ZONE['y'])
+    cfg['deliveryZone'] = delivery
+
+    try:
+        cfg['cutDuration'] = float(cfg.get('cutDuration', DEFAULT_CUT_DURATION) or DEFAULT_CUT_DURATION)
+    except (TypeError, ValueError):
+        cfg['cutDuration'] = DEFAULT_CUT_DURATION
+    try:
+        cfg['bakeDuration'] = float(cfg.get('bakeDuration', DEFAULT_BAKE_DURATION) or DEFAULT_BAKE_DURATION)
+    except (TypeError, ValueError):
+        cfg['bakeDuration'] = DEFAULT_BAKE_DURATION
+
+    choices = list(cfg['orderMapping'].keys()) or ingredient_list
+
+    sanitized_generators = []
+    for fg in cfg.get('foodGenerators', []):
+        cloned = dict(fg)
+        cloned.setdefault('width', DEFAULT_GENERATOR['width'])
+        cloned.setdefault('height', DEFAULT_GENERATOR['height'])
+        cloned.setdefault('x', DEFAULT_GENERATOR['x'])
+        cloned.setdefault('y', DEFAULT_GENERATOR['y'])
+        if cloned.get('nextFood') not in choices:
+            cloned['nextFood'] = random.choice(choices)
+        sanitized_generators.append(cloned)
+
+    if not sanitized_generators:
+        gen = dict(DEFAULT_GENERATOR)
+        gen['nextFood'] = random.choice(choices)
+        sanitized_generators.append(gen)
+
+    cfg['foodGenerators'] = sanitized_generators
+
+    cfg.setdefault('movingObstacles', [])
+    cfg.setdefault('staticObstacles', [])
+    cfg.setdefault('transferObjects', [])
+
+    return cfg
 
 # ─────────────────────────────────────────
 # ユーティリティ関数
@@ -185,18 +274,7 @@ def in_zone(x: float, y: float, zone: dict) -> bool:
 
 
 def initialize_room(room: str, config: dict = None):
-    cfg = config or get_default_config()
-    if 'actionZones' not in cfg:
-        cfg['actionZones'] = []
-    for z in cfg.pop('choppingZones', []):
-        z.update({'action': 'cut', 'display': '切っている…'})
-        cfg['actionZones'].append(z)
-    for z in cfg.pop('bakingZones', []):
-        z.update({'action': 'bake', 'display': '焼いている…'})
-        cfg['actionZones'].append(z)
-    for zone in cfg.get('actionZones', []):
-        zone.setdefault('occupied', False)
-        zone.pop('cooking', None)
+    cfg = sanitize_config(config or get_default_config())
     if isinstance(cfg.get('transferObjects'), str):
         cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
 
@@ -205,12 +283,18 @@ def initialize_room(room: str, config: dict = None):
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.orders = [build_order(cfg) for _ in range(3)]
 
+    item_choices = list(cfg['orderMapping'].keys())
     for _ in range(3):
+        if not item_choices:
+            break
+        item_type = random.choice(item_choices)
         itm = Item(
             id=rs.nextItemId,
-            type=random.choice(list(cfg['orderMapping'].keys())),
+            type=item_type,
             x=random.randint(50,750),
-            y=random.randint(50,550)
+            y=random.randint(50,550),
+            state='raw',
+            display=format_item_display(item_type, 'raw'),
         )
         rs.items.append(itm)
         rs.nextItemId += 1
@@ -328,8 +412,10 @@ def run_cooking_task(room: str, zone: dict, task: dict):
         state=task['result_state'],
     )
     rs.nextItemId += 1
-    if task.get('result_display'):
-        cooked.display = task['result_display']
+    display = task.get('result_display') or format_item_display(
+        task['result_type'], task['result_state']
+    )
+    cooked.display = display
     rs.items.append(cooked)
 
     zone['occupied'] = False
@@ -365,11 +451,9 @@ def on_update_config(data):
     if room not in rooms:
         initialize_room(room, cfg)
     else:
+        cfg = sanitize_config(cfg)
         if isinstance(cfg.get('transferObjects'), str):
             cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
-        for zone in cfg.get('actionZones', []):
-            zone.setdefault('occupied', False)
-            zone.pop('cooking', None)
         rooms[room].config = cfg
         mark_dirty(room)
 
@@ -416,84 +500,122 @@ def on_interact(data):
 
     # アイテム取得 or 生成
     if p.currentItem is None:
-        for itm in rs.items:
+        for itm in list(rs.items):
             if ((itm.x - x)**2 + (itm.y - y)**2) ** 0.5 < 50:
                 p.currentItem = itm
                 rs.items.remove(itm)
                 mark_dirty(room)
                 return
+        food_choices = list(cfg.get('orderMapping', {}).keys()) or ingredient_types()
         for fg in cfg.get('foodGenerators', []):
-            if in_zone(x, y, fg):
-                new_itm = Item(
-                    id=rs.nextItemId,
-                    type=fg['nextFood'],
-                    x=x, y=y
-                )
-                rs.nextItemId += 1
-                p.currentItem = new_itm
-                fg['nextFood'] = random.choice(list(cfg['orderMapping']))
-                mark_dirty(room)
-                return
+            if not in_zone(x, y, fg):
+                continue
+            if not food_choices:
+                continue
+            next_type = fg.get('nextFood') if fg.get('nextFood') in food_choices else random.choice(food_choices)
+            new_itm = Item(
+                id=rs.nextItemId,
+                type=next_type,
+                x=x,
+                y=y,
+                state='raw',
+                display=format_item_display(next_type, 'raw'),
+            )
+            rs.nextItemId += 1
+            p.currentItem = new_itm
+            fg['nextFood'] = random.choice(food_choices)
+            mark_dirty(room)
+            return
         if position_updated:
             mark_dirty(room)
         return
 
-    # 調理ステップ
-    step = find_next_step(cfg, p.currentItem.type)
-    if step:
-        for zone in cfg['actionZones']:
-            if not zone['occupied'] and zone['action'] == step['action'] and in_zone(x, y, zone):
-                zone['occupied'] = True
-                itm = p.currentItem
-                p.currentItem = None
-                p.cooking = False
-                p.currentZone = None
-                p.image = p.base_image
+    # 調理ステップ (切る→焼く)
+    itm = p.currentItem
+    action_needed = None
+    result_state = None
+    duration = None
+    if itm.state in ('raw', None):
+        action_needed = 'cut'
+        result_state = 'chopped'
+        duration = cfg.get('cutDuration', DEFAULT_CUT_DURATION)
+    elif itm.state in ('chopped', 'cut'):
+        action_needed = 'bake'
+        result_state = 'cooked'
+        duration = cfg.get('bakeDuration', DEFAULT_BAKE_DURATION)
 
-                duration = float(step.get('time', 1.0) or 1.0)
-                cooking_id = uuid.uuid4().hex
-                task = {
-                    'id': cooking_id,
-                    'progress': 0.0,
-                    'duration': duration,
-                    'texture': getattr(itm, 'type', None),
-                    'itemType': getattr(itm, 'type', None),
-                    'displayText': zone.get('display') or '調理中…',
-                    'result_type': step['result'],
-                    'result_state': infer_state(step.get('action', ''), getattr(itm, 'state', 'raw')),
-                    'result_display': None,
-                    'startedAt': time.time(),
-                }
-                zone['cooking'] = task
+    if action_needed:
+        for zone in cfg.get('actionZones', []):
+            if zone.get('action') != action_needed or zone.get('occupied'):
+                continue
+            if not in_zone(x, y, zone):
+                continue
+            zone['occupied'] = True
+            p.currentItem = None
+            p.cooking = False
+            p.currentZone = None
+            p.image = p.base_image
 
-                socketio.start_background_task(
-                    run_cooking_task, room, zone, task
-                )
-                mark_dirty(room)
-                return
+            try:
+                duration_val = float(duration or 0)
+            except (TypeError, ValueError):
+                duration_val = DEFAULT_CUT_DURATION if action_needed == 'cut' else DEFAULT_BAKE_DURATION
+            if duration_val <= 0:
+                duration_val = DEFAULT_CUT_DURATION if action_needed == 'cut' else DEFAULT_BAKE_DURATION
+
+            cooking_id = uuid.uuid4().hex
+            task = {
+                'id': cooking_id,
+                'progress': 0.0,
+                'duration': duration_val,
+                'texture': getattr(itm, 'type', None),
+                'itemType': getattr(itm, 'type', None),
+                'displayText': zone.get('display') or ('切っている…' if action_needed == 'cut' else '焼いている…'),
+                'result_type': itm.type,
+                'result_state': result_state,
+                'result_display': format_item_display(itm.type, result_state),
+                'startedAt': time.time(),
+            }
+            zone['cooking'] = task
+
+            socketio.start_background_task(
+                run_cooking_task, room, zone, task
+            )
+            mark_dirty(room)
+            return
 
     # 配膳
-    if in_zone(x, y, cfg['deliveryZone']):
-        delivered = cfg['orderMapping'].get(p.currentItem.type, '不明')
+    delivery_zone = cfg.get('deliveryZone')
+    if delivery_zone and in_zone(x, y, delivery_zone):
+        if itm.state != 'cooked':
+            if position_updated:
+                mark_dirty(room)
+            return
+        delivered = cfg['orderMapping'].get(itm.type, '不明')
         expected = rs.orders[0]['dish'] if rs.orders else None
         if delivered == expected:
             rs.score += 10
             rs.orders.pop(0)
             rs.orders.append(build_order(cfg))
         else:
-            rs.score -= cfg['wrongOrderPenalty']
+            rs.score -= cfg.get('wrongOrderPenalty', 5)
         p.currentItem = None
         mark_dirty(room)
         return
 
     # 置く or 転送
-    itm = p.currentItem
     itm.x, itm.y = x, y
     itm.id = rs.nextItemId
     rs.nextItemId += 1
+    itm.display = format_item_display(itm.type, itm.state)
     for tr in cfg.get('transferObjects', []):
-        if in_zone(x, y, tr['sourceZone']):
-            itm.x, itm.y = tr['destination']['x'], tr['destination']['y']
+        src = tr.get('sourceZone')
+        dest = tr.get('destination')
+        if not src or not dest:
+            continue
+        if in_zone(x, y, src):
+            itm.x = dest.get('x', itm.x)
+            itm.y = dest.get('y', itm.y)
             break
     rs.items.append(itm)
     p.currentItem = None
@@ -514,7 +636,6 @@ def game_timer_task():
                     rs.gameOver = True
                     rs.items.clear()
             update_orders(room, rooms)
-            process_combinations(room, rooms, Item)
             mark_dirty(room)
             if rs.gameOver and not rs.resetScheduled:
                 rs.resetScheduled = True
