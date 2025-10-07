@@ -1075,17 +1075,10 @@ export class LocalSimulator {
         continue;
       }
       const resultState = result.state || defaultItemState(resultType);
-      this.state.items.splice(i, 1);
-      const combined = {
-        id: this.state.nextItemId,
-        type: resultType,
-        x,
-        y,
-        state: resultState,
-        display: formatItemDisplay(resultType, resultState),
-      };
-      this.state.nextItemId += 1;
-      player.currentItem = combined;
+      other.type = resultType;
+      other.state = resultState;
+      other.display = formatItemDisplay(resultType, resultState);
+      player.currentItem = null;
       return true;
     }
     return false;

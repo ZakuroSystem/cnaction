@@ -1084,7 +1084,7 @@ def on_interact(data):
             return
 
     # 組み合わせ
-    for other in list(rs.items):
+    for other in rs.items:
         if other is itm:
             continue
         if ((other.x - x) ** 2 + (other.y - y) ** 2) ** 0.5 > 60:
@@ -1103,17 +1103,10 @@ def on_interact(data):
         if not result_type:
             continue
         result_state = result.get('state') or default_item_state(result_type)
-        rs.items.remove(other)
-        combined = Item(
-            id=rs.nextItemId,
-            type=result_type,
-            x=x,
-            y=y,
-            state=result_state,
-            display=format_item_display(result_type, result_state),
-        )
-        rs.nextItemId += 1
-        p.currentItem = combined
+        other.type = result_type
+        other.state = result_state
+        other.display = format_item_display(result_type, result_state)
+        p.currentItem = None
         mark_dirty(room)
         return
 
