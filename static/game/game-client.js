@@ -14,6 +14,7 @@ export class GameClient {
     this.canvas.width = 800;
     this.canvas.height = 600;
     this.canvas.tabIndex = 0;
+    this.canvas.style.imageRendering = 'pixelated';
     this.container.innerHTML = '';
     this.container.appendChild(this.canvas);
 
