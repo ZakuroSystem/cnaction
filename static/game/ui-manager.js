@@ -1,3 +1,13 @@
+const newItemImage = (filename) => `/static/new_items/${encodeURIComponent(filename)}`;
+
+const INGREDIENT_ICON_OVERRIDES = {
+  tomato: newItemImage('TMT.png'),
+};
+
+const ITEM_ICON_OVERRIDES = {
+  ingredient_tomato: newItemImage('TMT.png'),
+};
+
 export class UIManager {
   constructor({
     timerEl,
@@ -150,8 +160,15 @@ export class UIManager {
     if (!order) return null;
     if (order.image) return order.image;
     if (order.itemType) {
+      if (ITEM_ICON_OVERRIDES[order.itemType]) {
+        return ITEM_ICON_OVERRIDES[order.itemType];
+      }
       if (order.itemType.startsWith('ingredient_')) {
         const base = order.itemType.replace(/^ingredient_/, '');
+        const mapped = INGREDIENT_ICON_OVERRIDES[base];
+        if (mapped) {
+          return mapped;
+        }
         return `/static/new_items/${base}.png`;
       }
       if (order.itemType.startsWith('dish_')) {

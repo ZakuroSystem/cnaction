@@ -533,31 +533,31 @@ form fieldset {
 }
 
 .stage-object-icon-action {
-  background-image: url('/static/assets/cooking_zone1.png');
+  background-image: url('/static/new_items/%E3%81%BE%E3%81%AA%E6%9D%BF%E3%81%8C%E4%B9%97%E3%81%A3%E3%81%A6%E3%81%84%E3%82%8B%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC.png');
 }
 
 .stage-object-icon-delivery {
-  background-image: url('/static/assets/delivery_zone.png');
+  background-image: url('/static/new_items/%E9%85%8D%E8%86%B3%E7%94%A8%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC.png');
 }
 
 .stage-object-icon-moving {
-  background-image: url('/static/assets/obstacle/obstacle2.png');
+  background-image: url('/static/new_items/%E5%9B%9B%E8%A7%92%E3%81%84%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC%20.png');
 }
 
 .stage-object-icon-static {
-  background-image: url('/static/assets/obstacle/obstacle1.png');
+  background-image: url('/static/new_items/%E5%9B%9B%E8%A7%92%E3%81%84%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC%20.png');
 }
 
 .stage-object-icon-foodGen {
-  background-image: url('/static/assets/food_generator.png');
+  background-image: url('/static/new_items/%E9%A3%9F%E6%9D%90%E3%81%8C%E5%87%BA%E3%81%A6%E3%81%8F%E3%82%8B%E3%81%8B%E3%81%94.png');
 }
 
 .stage-object-icon-transferSrc {
-  background-image: url('/static/assets/sourceImage.png');
+  background-image: url('/static/new_items/%E9%A3%9F%E6%9D%90%E3%83%AF%E3%83%BC%E3%83%97%28%E9%9D%92%29.png');
 }
 
 .stage-object-icon-transferDst {
-  background-image: url('/static/assets/destinationImage.png');
+  background-image: url('/static/new_items/%E9%A3%9F%E6%9D%90%E3%83%AF%E3%83%BC%E3%83%97%28%E7%B4%AB%29.png');
 }
 
 .stage-object-item small {

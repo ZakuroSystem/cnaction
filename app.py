@@ -148,9 +148,28 @@ def sanitize_config(cfg: dict) -> dict:
 
     ingredient_list = ingredient_types()
     dish_list = dish_types()
-    dish_names = [name for name in (get_dish_name(t) for t in dish_list) if name]
-    cfg['dishList'] = dish_names
-    cfg['orderMapping'] = {t: get_dish_name(t) or t for t in dish_list}
+    default_mapping = {t: get_dish_name(t) or t for t in dish_list}
+
+    sanitized_mapping = {}
+    if isinstance(cfg.get('orderMapping'), dict):
+        for item_type, dish_name in cfg['orderMapping'].items():
+            if item_type not in dish_list:
+                continue
+            if not isinstance(dish_name, str) or not dish_name.strip():
+                continue
+            sanitized_mapping[item_type] = dish_name.strip()
+    if not sanitized_mapping:
+        sanitized_mapping = default_mapping
+    cfg['orderMapping'] = sanitized_mapping
+
+    sanitized_dishes = []
+    if isinstance(cfg.get('dishList'), (list, tuple)):
+        for dish_name in cfg['dishList']:
+            if isinstance(dish_name, str) and dish_name.strip():
+                sanitized_dishes.append(dish_name.strip())
+    if not sanitized_dishes:
+        sanitized_dishes = list(dict.fromkeys(sanitized_mapping.values()))
+    cfg['dishList'] = sanitized_dishes
 
     chopping = cfg.pop('choppingZones', []) or []
     baking = cfg.pop('bakingZones', []) or []

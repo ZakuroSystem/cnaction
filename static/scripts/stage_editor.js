@@ -11,8 +11,10 @@ const socket = io();
 const canvas = document.getElementById('stageCanvas');
 const ctx = canvas ? canvas.getContext('2d') : null;
 
+const newItemTexture = (filename) => `/static/new_items/${encodeURIComponent(filename)}`;
+
 const bg = new Image();
-bg.src = '/static/assets/background/kitchen.png';
+bg.src = newItemTexture('背景 コンクリート_ブラッシュアップ1.png');
 bg.onload = () => drawCanvas();
 
 const details = {
@@ -44,24 +46,24 @@ const typeLabels = {
 };
 
 const baseTexturePaths = {
-    action_default: '/static/assets/cooking_zone1.png',
-    action_cut: '/static/assets/cooking_zone1.png',
-    action_bake: '/static/assets/cooking_zone2.png',
-    action_boil: '/static/assets/cooking_zone2.png',
-    action_mix: '/static/assets/cooking_zone1.png',
-    delivery: '/static/assets/delivery_zone.png',
-    moving: '/static/assets/obstacle/obstacle2.png',
-    static: '/static/assets/obstacle/obstacle1.png',
-    foodGen: '/static/assets/food_generator.png',
-    transferSrc: '/static/assets/sourceImage.png',
-    transferDst: '/static/assets/destinationImage.png'
+    action_default: newItemTexture('まな板が乗っているカウンター.png'),
+    action_cut: newItemTexture('まな板が乗っているカウンター.png'),
+    action_bake: newItemTexture('フライパンが乗っているカウンター.png'),
+    action_boil: newItemTexture('フライパンが乗っているカウンター.png'),
+    action_mix: newItemTexture('まな板が乗っているカウンター.png'),
+    delivery: newItemTexture('配膳用カウンター.png'),
+    moving: newItemTexture('四角いカウンター .png'),
+    static: newItemTexture('四角いカウンター .png'),
+    foodGen: newItemTexture('食材が出てくるかご.png'),
+    transferSrc: newItemTexture('食材ワープ(青).png'),
+    transferDst: newItemTexture('食材ワープ(紫).png')
 };
 
 const ingredientTexturePaths = {
     ingredient_burger_buns: '/static/new_items/burger_buns.png',
     ingredient_beef_patty: '/static/new_items/beef_patty.png',
     ingredient_lettuce: '/static/new_items/lettuce.png',
-    ingredient_tomato: '/static/new_items/TMT.png'
+    ingredient_tomato: newItemTexture('TMT.png')
 };
 
 const textures = {};
