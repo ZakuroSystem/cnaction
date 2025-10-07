@@ -193,8 +193,67 @@ def sanitize_config(cfg: dict) -> dict:
         cloned['display'] = zone.get('display') or ('切っている…' if action == 'cut' else '焼いている…')
         cloned['width'] = zone.get('width', 150)
         cloned['height'] = zone.get('height', 150)
-        cloned['occupied'] = False
-        cloned.pop('cooking', None)
+        occupied = bool(zone.get('occupied'))
+
+        cooking_payload = zone.get('cooking') if isinstance(zone.get('cooking'), dict) else None
+        sanitized_task = None
+        if cooking_payload:
+            duration_raw = cooking_payload.get('duration')
+            try:
+                duration_val = float(duration_raw)
+            except (TypeError, ValueError):
+                duration_val = None
+            if not duration_val or duration_val <= 0:
+                duration_val = cfg['cutDuration'] if action == 'cut' else cfg['bakeDuration']
+
+            try:
+                progress_val = float(cooking_payload.get('progress'))
+            except (TypeError, ValueError):
+                progress_val = 0.0
+            progress_val = max(0.0, min(progress_val, 1.0))
+
+            result_type = cooking_payload.get('result_type') or cooking_payload.get('itemType')
+            result_state = cooking_payload.get('result_state')
+            if result_type and not result_state:
+                result_state = default_item_state(result_type)
+
+            try:
+                started_at = float(cooking_payload.get('startedAt'))
+            except (TypeError, ValueError):
+                started_at = time.time()
+
+            sanitized_task = {
+                'id': str(cooking_payload.get('id') or uuid.uuid4().hex),
+                'progress': progress_val,
+                'duration': duration_val,
+                'texture': cooking_payload.get('texture'),
+                'itemType': cooking_payload.get('itemType'),
+                'displayText': cooking_payload.get('displayText') or cloned['display'],
+                'result_type': result_type,
+                'result_state': result_state,
+                'result_display': cooking_payload.get('result_display') or (
+                    format_item_display(result_type, result_state) if result_type else None
+                ),
+                'startedAt': started_at,
+            }
+            if cooking_payload.get('elapsed') is not None:
+                try:
+                    sanitized_task['elapsed'] = max(0.0, float(cooking_payload.get('elapsed')))
+                except (TypeError, ValueError):
+                    pass
+            if cooking_payload.get('remaining') is not None:
+                try:
+                    sanitized_task['remaining'] = max(0.0, float(cooking_payload.get('remaining')))
+                except (TypeError, ValueError):
+                    pass
+
+        if sanitized_task:
+            cloned['cooking'] = sanitized_task
+            occupied = True
+        else:
+            cloned.pop('cooking', None)
+
+        cloned['occupied'] = occupied
         sanitized_zones.append(cloned)
 
     if not sanitized_zones:
