@@ -350,13 +350,25 @@ export class LocalSimulator {
         const cloned = { ...zone };
         if (zone.cooking) {
           const id = zone.cooking.id || `task-${index}`;
-          const task = { ...zone.cooking, id, startedAt: nowSeconds() };
+          const task = { ...zone.cooking, id };
+          if (!Number.isFinite(task.startedAt)) {
+            task.startedAt = nowSeconds();
+          }
           cloned.cooking = task;
-          this.cookingTasks.set(id, {
+          const info = {
             zoneIndex: index,
             task,
-            startedAt: task.startedAt,
-          });
+            startedAt: Number(task.startedAt) || nowSeconds(),
+          };
+          if (task.result_item_id) {
+            info.resultItemId = task.result_item_id;
+            info.spawnedAt = Number(task.finishedAt) || info.startedAt;
+          }
+          if (task.burned) {
+            info.burned = true;
+            info.burnDisplayAt = Number(task.burnedAt) || nowSeconds();
+          }
+          this.cookingTasks.set(id, info);
         }
         return cloned;
       });
@@ -532,28 +544,65 @@ export class LocalSimulator {
       const progress = Math.max(0, Math.min(elapsed / duration, 1));
       task.progress = progress;
       task.elapsed = elapsed;
-      task.remaining = Math.max(duration - elapsed, 0);
-      if (progress >= 1) {
-        this.finishCookingTask(info.zoneIndex, zone, task);
-        this.cookingTasks.delete(taskId);
+      if (!info.resultItemId) {
+        task.remaining = Math.max(duration - elapsed, 0);
+      } else {
+        task.remaining = 0;
+      }
+
+      if (!info.resultItemId && progress >= 1) {
+        const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
+        const newItem = {
+          id: this.state.nextItemId,
+          type: task.result_type,
+          x: zone.x,
+          y: zone.y,
+          state: task.result_state,
+          display,
+        };
+        this.state.nextItemId += 1;
+        this.state.items.push(newItem);
+        zone.occupied = false;
+        task.displayText = display;
+        task.result_item_id = newItem.id;
+        task.finishedAt = now;
+        info.resultItemId = newItem.id;
+        info.spawnedAt = now;
         this.dirty = true;
+        continue;
+      }
+
+      if (info.resultItemId && !info.burned) {
+        const stillPresent = this.state.items.some((itm) => itm.id === info.resultItemId);
+        if (!stillPresent) {
+          delete zone.cooking;
+          this.cookingTasks.delete(taskId);
+          this.dirty = true;
+          continue;
+        }
+        const burnLimit = duration * 4;
+        if (burnLimit > 0 && elapsed >= burnLimit) {
+          this.state.items = this.state.items.filter((itm) => itm.id !== info.resultItemId);
+          task.displayText = '消し炭になってしまった！';
+          task.progress = 0;
+          task.remaining = 0;
+          task.burned = true;
+          info.burned = true;
+          info.burnDisplayAt = now;
+          this.dirty = true;
+          continue;
+        }
+      }
+
+      if (info.burned) {
+        const shownFor = now - (info.burnDisplayAt || now);
+        if (shownFor >= 1.5) {
+          delete zone.cooking;
+          this.cookingTasks.delete(taskId);
+          this.dirty = true;
+        }
       }
     }
-  }
-
-  finishCookingTask(zoneIndex, zone, task) {
-    const newItem = {
-      id: this.state.nextItemId,
-      type: task.result_type,
-      x: zone.x,
-      y: zone.y,
-      state: task.result_state,
-      display: task.result_display || formatItemDisplay(task.result_type, task.result_state),
-    };
-    this.state.nextItemId += 1;
-    this.state.items.push(newItem);
-    zone.occupied = false;
-    delete zone.cooking;
   }
 
   handleMove(playerId, x, y) {

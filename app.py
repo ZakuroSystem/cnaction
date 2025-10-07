@@ -4,7 +4,7 @@ import random
 import uuid
 from dataclasses import asdict
 from threading import Lock
-from typing import Dict
+from typing import Dict, Optional
 import json
 
 from flask import (
@@ -591,54 +591,88 @@ def reset_room():
 def run_cooking_task(room: str, zone: dict, task: dict):
     if room not in rooms or rooms[room].clientManaged:
         return
+
     duration = max(float(task.get('duration', 1.0) or 0.0), 0.1)
+    burn_threshold = duration * 4.0
     start = time.time()
     task['startedAt'] = start
     task['duration'] = duration
+
+    result_item_id = None
+    burned = False
+    burn_display_at: Optional[float] = None
 
     while True:
         socketio.sleep(0.1)
         if room not in rooms:
             return
+
+        rs = rooms[room]
         current = zone.get('cooking')
         if not current or current.get('id') != task['id']:
             return
 
-        elapsed = time.time() - start
+        now = time.time()
+        elapsed = now - start
         progress = max(0.0, min(elapsed / duration, 1.0))
+
         current['progress'] = progress
         current['elapsed'] = elapsed
-        current['remaining'] = max(duration - elapsed, 0.0)
+        if result_item_id is None:
+            current['remaining'] = max(duration - elapsed, 0.0)
+        else:
+            current['remaining'] = 0.0
+
+        if result_item_id is None and progress >= 1.0:
+            cooked = Item(
+                id=rs.nextItemId,
+                type=task['result_type'],
+                x=zone['x'],
+                y=zone['y'],
+                state=task['result_state'],
+            )
+            rs.nextItemId += 1
+            display = task.get('result_display') or format_item_display(
+                task['result_type'], task['result_state']
+            )
+            cooked.display = display
+            rs.items.append(cooked)
+
+            result_item_id = cooked.id
+            current['result_item_id'] = result_item_id
+            current['finishedAt'] = now
+            current['displayText'] = display
+            zone['occupied'] = False
+
+        if result_item_id is not None and not burned:
+            still_present = any(itm.id == result_item_id for itm in rs.items)
+            if not still_present:
+                if zone.get('cooking', {}).get('id') == task['id']:
+                    zone.pop('cooking', None)
+                    mark_dirty(room)
+                return
+
+            if burn_threshold > 0.0 and elapsed >= burn_threshold:
+                for idx, itm in enumerate(rs.items):
+                    if itm.id == result_item_id:
+                        rs.items.pop(idx)
+                        break
+                current['displayText'] = '消し炭になってしまった！'
+                current['progress'] = 0.0
+                current['remaining'] = 0.0
+                current['burned'] = True
+                current['burnedAt'] = now
+                burned = True
+                burn_display_at = now
+
+        if burned:
+            if burn_display_at and (now - burn_display_at) >= 1.5:
+                if zone.get('cooking', {}).get('id') == task['id']:
+                    zone.pop('cooking', None)
+                mark_dirty(room)
+                return
+
         mark_dirty(room)
-
-        if progress >= 1.0:
-            break
-
-    if room not in rooms:
-        return
-
-    rs = rooms[room]
-    current = zone.get('cooking')
-    if not current or current.get('id') != task['id']:
-        return
-
-    cooked = Item(
-        id=rs.nextItemId,
-        type=task['result_type'],
-        x=zone['x'],
-        y=zone['y'],
-        state=task['result_state'],
-    )
-    rs.nextItemId += 1
-    display = task.get('result_display') or format_item_display(
-        task['result_type'], task['result_state']
-    )
-    cooked.display = display
-    rs.items.append(cooked)
-
-    zone['occupied'] = False
-    zone.pop('cooking', None)
-    mark_dirty(room)
 
 @socketio.on('join')
 def on_join(data):
