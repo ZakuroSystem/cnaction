@@ -25,6 +25,7 @@ class Player:
 class RoomState:
     players: Dict[str, Player] = field(default_factory=dict)
     items: List[Item] = field(default_factory=list)
+    item_lookup: Dict[int, Item] = field(default_factory=dict, repr=False, compare=False)
     orders: List[dict] = field(default_factory=list)
     score: int = 0
     timer: int = 60
@@ -34,3 +35,5 @@ class RoomState:
     resetScheduled: bool = False
     hostId: str = ''
     clientManaged: bool = False
+    runtime: dict = field(default_factory=dict, repr=False, compare=False)
+    configRevision: int = 0

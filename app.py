@@ -2,7 +2,6 @@ import os
 import time
 import random
 import uuid
-from dataclasses import asdict
 from threading import Lock
 from typing import Dict, Optional
 import json
@@ -17,7 +16,8 @@ from utils import (
     update_orders, export_config_response, save_uploaded_file, build_order,
     ingredient_types, dish_types, get_dish_name, format_item_display,
     default_item_state, default_cooking_recipes, default_combination_recipes,
-    find_combination_recipe
+    find_combination_recipe, build_runtime_metadata, hydrate_order,
+    find_cooking_recipe, find_combination_recipe_from_index
 )
 from models import Item, Player, RoomState
 
@@ -384,6 +384,78 @@ def sanitize_config(cfg: dict) -> dict:
     return cfg
 
 # ─────────────────────────────────────────
+# ルーム構成ヘルパー
+# ─────────────────────────────────────────
+
+
+def refresh_orders_metadata(rs: RoomState):
+    if not isinstance(rs.orders, list):
+        rs.orders = []
+        return
+    cfg = rs.config or {}
+    runtime = getattr(rs, 'runtime', {})
+    refreshed = []
+    for order in rs.orders:
+        if isinstance(order, dict):
+            refreshed.append(hydrate_order(cfg, runtime, order))
+    rs.orders = refreshed
+
+
+def assign_room_config(rs: RoomState, cfg: dict, revision: Optional[int] = None):
+    rs.config = cfg
+    rs.runtime = build_runtime_metadata(cfg)
+    if revision is not None:
+        try:
+            rs.configRevision = int(revision)
+        except (TypeError, ValueError):
+            rs.configRevision = rs.configRevision or 0
+    else:
+        rs.configRevision += 1
+    refresh_orders_metadata(rs)
+
+
+def _serialize_item(item: Optional[Item]) -> Optional[dict]:
+    if not item:
+        return None
+    return {
+        'id': item.id,
+        'type': item.type,
+        'x': item.x,
+        'y': item.y,
+        'state': item.state,
+        'display': item.display,
+    }
+
+
+def _serialize_player(player: Player) -> dict:
+    return {
+        'x': player.x,
+        'y': player.y,
+        'currentItem': _serialize_item(player.currentItem),
+        'cooking': player.cooking,
+        'currentZone': dict(player.currentZone) if isinstance(player.currentZone, dict) else None,
+        'base_image': player.base_image,
+        'image': player.image,
+    }
+
+
+def serialize_room_state(rs: RoomState) -> dict:
+    return {
+        'players': {pid: _serialize_player(p) for pid, p in rs.players.items()},
+        'items': [_serialize_item(itm) for itm in rs.items],
+        'orders': [dict(order) for order in rs.orders if isinstance(order, dict)],
+        'score': rs.score,
+        'timer': rs.timer,
+        'gameOver': rs.gameOver,
+        'config': rs.config,
+        'nextItemId': rs.nextItemId,
+        'resetScheduled': rs.resetScheduled,
+        'hostId': rs.hostId,
+        'clientManaged': rs.clientManaged,
+        'configRevision': rs.configRevision,
+    }
+
+# ─────────────────────────────────────────
 # ユーティリティ関数
 # ─────────────────────────────────────────
 _flush_lock = Lock()
@@ -400,7 +472,7 @@ def flush_dirty():
         if room not in rooms:
             dirty_flags.pop(room, None)
             continue
-        state = asdict(rooms[room])
+        state = serialize_room_state(rooms[room])
         state['serverTime'] = time.time()
         socketio.emit('state_update', state, room=room)
         dirty_flags.pop(room, None)
@@ -451,6 +523,63 @@ def _item_from_snapshot(data: dict, fallback_id: int) -> Item:
     )
 
 
+def _ensure_item_lookup(rs: RoomState) -> Dict[int, Item]:
+    lookup = getattr(rs, 'item_lookup', None)
+    if lookup is None:
+        lookup = {}
+        rs.item_lookup = lookup
+        for itm in rs.items:
+            lookup[itm.id] = itm
+    return lookup
+
+
+def _register_world_item(rs: RoomState, item: Item, *, assign_new_id: bool = False) -> Item:
+    lookup = _ensure_item_lookup(rs)
+    if assign_new_id or item.id is None:
+        item.id = rs.nextItemId
+        rs.nextItemId += 1
+    else:
+        if item.id >= rs.nextItemId:
+            rs.nextItemId = item.id + 1
+    rs.items.append(item)
+    lookup[item.id] = item
+    return item
+
+
+def _remove_world_item(rs: RoomState, target) -> Optional[Item]:
+    lookup = _ensure_item_lookup(rs)
+    item: Optional[Item]
+    if isinstance(target, Item):
+        item = target
+    else:
+        try:
+            item_id = int(target)
+        except (TypeError, ValueError):
+            item_id = None
+        item = lookup.get(item_id) if item_id is not None else None
+    if not item:
+        return None
+    lookup.pop(item.id, None)
+    try:
+        rs.items.remove(item)
+    except ValueError:
+        rs.items[:] = [itm for itm in rs.items if itm.id != item.id]
+    return item
+
+
+def _rebuild_item_lookup(rs: RoomState):
+    lookup = _ensure_item_lookup(rs)
+    lookup.clear()
+    for itm in rs.items:
+        lookup[itm.id] = itm
+
+
+def _clear_world_items(rs: RoomState):
+    rs.items.clear()
+    lookup = _ensure_item_lookup(rs)
+    lookup.clear()
+
+
 def _apply_client_state(room: str, snapshot: dict):
     rs = rooms[room]
     players = snapshot.get('players') or {}
@@ -479,6 +608,7 @@ def _apply_client_state(room: str, snapshot: dict):
             continue
         new_items.append(_item_from_snapshot(item, rs.nextItemId))
     rs.items = new_items
+    _rebuild_item_lookup(rs)
 
     if snapshot.get('orders') is not None:
         orders = []
@@ -492,12 +622,16 @@ def _apply_client_state(room: str, snapshot: dict):
 
     if snapshot.get('nextItemId') is not None:
         rs.nextItemId = _coerce_int(snapshot.get('nextItemId'), rs.nextItemId)
-    elif rs.items:
-        rs.nextItemId = max(itm.id for itm in rs.items) + 1
+    elif rs.item_lookup:
+        rs.nextItemId = max(rs.item_lookup) + 1
 
     cfg = snapshot.get('config')
     if isinstance(cfg, dict):
-        rs.config = sanitize_config(cfg)
+        cfg = sanitize_config(cfg)
+        if isinstance(cfg.get('transferObjects'), str):
+            cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
+        revision = _coerce_int(snapshot.get('configRevision'), rs.configRevision)
+        assign_room_config(rs, cfg, revision=revision)
 
     rs.clientManaged = True
 
@@ -695,9 +829,9 @@ def initialize_room(room: str, config: dict = None):
         cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
 
     rs = RoomState()
-    rs.config = cfg
+    assign_room_config(rs, cfg)
     rs.timer = cfg.get('gameTime', rs.timer)
-    rs.orders = [build_order(cfg) for _ in range(3)]
+    rs.orders = [build_order(cfg, rs.runtime) for _ in range(3)]
 
     item_choices = ingredient_types()
     for _ in range(3):
@@ -706,15 +840,14 @@ def initialize_room(room: str, config: dict = None):
         item_type = random.choice(item_choices)
         state = default_item_state(item_type)
         itm = Item(
-            id=rs.nextItemId,
+            id=0,
             type=item_type,
             x=random.randint(50,750),
             y=random.randint(50,550),
             state=state,
             display=format_item_display(item_type, state),
         )
-        rs.items.append(itm)
-        rs.nextItemId += 1
+        _register_world_item(rs, itm, assign_new_id=True)
 
     rooms[room] = rs
     mark_dirty(room)
@@ -761,7 +894,7 @@ def admin():
 
 @bp.route('/admin_state')
 def admin_state():
-    return jsonify({r: asdict(rs) for r, rs in rooms.items()})
+    return jsonify({r: serialize_room_state(rs) for r, rs in rooms.items()})
 
 @bp.route('/export_config')
 def export_config():
@@ -781,8 +914,9 @@ def reset_room():
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.score = 0
     rs.gameOver = False
-    rs.orders = [build_order(cfg) for _ in range(3)]
+    rs.orders = [build_order(cfg, rs.runtime) for _ in range(3)]
     rs.resetScheduled = False
+    refresh_orders_metadata(rs)
     mark_dirty(room)
     return "Reset", 200
 
@@ -822,55 +956,59 @@ def run_cooking_task(room: str, zone: dict, task: dict):
         now = time.time()
         elapsed = now - start
         progress = max(0.0, min(elapsed / duration, 1.0))
+        dirty = False
 
-        current['progress'] = progress
-        current['elapsed'] = elapsed
-        if result_item_id is None:
-            current['remaining'] = max(duration - elapsed, 0.0)
-        else:
-            current['remaining'] = 0.0
+        if abs(current.get('progress', 0.0) - progress) > 1e-4:
+            current['progress'] = progress
+            dirty = True
+        if abs(current.get('elapsed', 0.0) - elapsed) > 1e-4:
+            current['elapsed'] = elapsed
+            dirty = True
+
+        remaining = 0.0 if result_item_id is not None else max(duration - elapsed, 0.0)
+        if abs(current.get('remaining', 0.0) - remaining) > 1e-4:
+            current['remaining'] = remaining
+            dirty = True
 
         if result_item_id is None and progress >= 1.0:
             cooked = Item(
-                id=rs.nextItemId,
+                id=0,
                 type=task['result_type'],
                 x=zone['x'],
                 y=zone['y'],
                 state=task['result_state'],
             )
-            rs.nextItemId += 1
             display = task.get('result_display') or format_item_display(
                 task['result_type'], task['result_state']
             )
             cooked.display = display
-            rs.items.append(cooked)
+            _register_world_item(rs, cooked, assign_new_id=True)
 
             result_item_id = cooked.id
             current['result_item_id'] = result_item_id
             current['finishedAt'] = now
             current['displayText'] = display
             zone['occupied'] = False
+            dirty = True
 
         if result_item_id is not None and not burned:
-            still_present = any(itm.id == result_item_id for itm in rs.items)
-            if not still_present:
+            if result_item_id not in rs.item_lookup:
                 if zone.get('cooking', {}).get('id') == task['id']:
                     zone.pop('cooking', None)
                     mark_dirty(room)
                 return
 
             if burn_threshold and burn_threshold > 0.0 and elapsed >= burn_threshold:
-                for idx, itm in enumerate(rs.items):
-                    if itm.id == result_item_id:
-                        rs.items.pop(idx)
-                        break
-                current['displayText'] = '消し炭になってしまった！'
-                current['progress'] = 0.0
-                current['remaining'] = 0.0
-                current['burned'] = True
-                current['burnedAt'] = now
-                burned = True
-                burn_display_at = now
+                removed = _remove_world_item(rs, result_item_id)
+                if removed:
+                    current['displayText'] = '消し炭になってしまった！'
+                    current['progress'] = 0.0
+                    current['remaining'] = 0.0
+                    current['burned'] = True
+                    current['burnedAt'] = now
+                    burned = True
+                    burn_display_at = now
+                    dirty = True
 
         if burned:
             if burn_display_at and (now - burn_display_at) >= 1.5:
@@ -879,7 +1017,8 @@ def run_cooking_task(room: str, zone: dict, task: dict):
                 mark_dirty(room)
                 return
 
-        mark_dirty(room)
+        if dirty:
+            mark_dirty(room)
 
 @socketio.on('join')
 def on_join(data):
@@ -922,7 +1061,7 @@ def on_update_config(data):
         cfg = sanitize_config(cfg)
         if isinstance(cfg.get('transferObjects'), str):
             cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
-        rooms[room].config = cfg
+        assign_room_config(rooms[room], cfg)
         mark_dirty(room)
 
 @socketio.on('move')
@@ -965,6 +1104,7 @@ def on_interact(data):
         socketio.emit('client_interact', payload, room=room)
         return
     cfg = rs.config
+    runtime = getattr(rs, 'runtime', {})
 
     x, y = p.x, p.y
     position_updated = False
@@ -982,10 +1122,13 @@ def on_interact(data):
 
     # アイテム取得 or 生成
     if p.currentItem is None:
+        pickup_radius_sq = 50 * 50
         for itm in list(rs.items):
-            if ((itm.x - x)**2 + (itm.y - y)**2) ** 0.5 < 50:
+            dx = itm.x - x
+            dy = itm.y - y
+            if dx * dx + dy * dy < pickup_radius_sq:
                 p.currentItem = itm
-                rs.items.remove(itm)
+                _remove_world_item(rs, itm)
                 mark_dirty(room)
                 return
         food_choices = ingredient_types()
@@ -1021,24 +1164,33 @@ def on_interact(data):
     result_type = itm.type
     duration = None
     display_override = None
-    for recipe in cfg.get('cookingRecipes', []) or []:
-        if not isinstance(recipe, dict):
-            continue
-        if recipe.get('type') != itm.type:
-            continue
-        from_state = recipe.get('from')
-        if from_state and from_state != itm.state:
-            continue
+    recipe = find_cooking_recipe(runtime.get('cooking_lookup'), itm.type, itm.state)
+    if not recipe:
+        for candidate in cfg.get('cookingRecipes', []) or []:
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get('type') != itm.type:
+                continue
+            from_state = candidate.get('from')
+            if from_state and from_state != itm.state:
+                continue
+            action = candidate.get('action')
+            if not action:
+                continue
+            to_state = candidate.get('to', itm.state)
+            if to_state is None:
+                continue
+            recipe = candidate
+            break
+
+    if recipe:
         action_needed = recipe.get('action')
-        if not action_needed:
-            continue
         result_state = recipe.get('to', itm.state)
         if result_state is None:
-            continue
+            result_state = itm.state
         result_type = recipe.get('resultType', itm.type)
         duration = recipe.get('duration')
         display_override = recipe.get('display')
-        break
 
     if action_needed:
         for zone in cfg.get('actionZones', []):
@@ -1084,18 +1236,29 @@ def on_interact(data):
             return
 
     # 組み合わせ
+    stack_radius_sq = 60 * 60
     for other in rs.items:
         if other is itm:
             continue
-        if ((other.x - x) ** 2 + (other.y - y) ** 2) ** 0.5 > 60:
+        dx = other.x - x
+        dy = other.y - y
+        if dx * dx + dy * dy > stack_radius_sq:
             continue
-        recipe = find_combination_recipe(
-            cfg.get('combinationRecipes'),
+        recipe = find_combination_recipe_from_index(
+            runtime.get('combination_index'),
             itm.type,
             itm.state,
             other.type,
             other.state,
         )
+        if not recipe:
+            recipe = find_combination_recipe(
+                cfg.get('combinationRecipes'),
+                itm.type,
+                itm.state,
+                other.type,
+                other.state,
+            )
         if not recipe:
             continue
         result = recipe.get('result') or {}
@@ -1132,7 +1295,7 @@ def on_interact(data):
         if delivered == expected:
             rs.score += 10
             rs.orders.pop(0)
-            rs.orders.append(build_order(cfg))
+            rs.orders.append(build_order(cfg, rs.runtime))
         else:
             rs.score -= cfg.get('wrongOrderPenalty', 5)
         p.currentItem = None
@@ -1141,8 +1304,6 @@ def on_interact(data):
 
     # 置く or 転送
     itm.x, itm.y = x, y
-    itm.id = rs.nextItemId
-    rs.nextItemId += 1
     itm.display = format_item_display(itm.type, itm.state)
     for tr in cfg.get('transferObjects', []):
         src = tr.get('sourceZone')
@@ -1153,7 +1314,7 @@ def on_interact(data):
             itm.x = dest.get('x', itm.x)
             itm.y = dest.get('y', itm.y)
             break
-    rs.items.append(itm)
+    _register_world_item(rs, itm, assign_new_id=True)
     p.currentItem = None
     mark_dirty(room)
 
@@ -1189,7 +1350,7 @@ def game_timer_task():
                 rs.timer -= 1
                 if rs.timer <= 0:
                     rs.gameOver = True
-                    rs.items.clear()
+                    _clear_world_items(rs)
             update_orders(room, rooms)
             mark_dirty(room)
             if rs.gameOver and not rs.resetScheduled:

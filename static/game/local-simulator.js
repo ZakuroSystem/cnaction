@@ -172,6 +172,226 @@ const COMBINATION_RECIPES = [
   },
 ];
 
+const INGREDIENT_TYPES = Object.freeze(
+  Object.keys(ITEM_LIBRARY).filter((key) => key.startsWith('ingredient_')),
+);
+const DISH_TYPES = Object.freeze(
+  Object.keys(ITEM_LIBRARY).filter((key) => ITEM_LIBRARY[key]?.dish),
+);
+
+function buildCookingLookup(recipes) {
+  const lookup = new Map();
+  (recipes || []).forEach((recipe) => {
+    if (!recipe || !recipe.type) return;
+    const list = lookup.get(recipe.type);
+    if (list) {
+      list.push(recipe);
+    } else {
+      lookup.set(recipe.type, [recipe]);
+    }
+  });
+  return lookup;
+}
+
+function findCookingRecipeFromLookup(lookup, itemType, itemState) {
+  if (!lookup || !itemType) return null;
+  const candidates = lookup.get(itemType);
+  if (!candidates) return null;
+  for (const recipe of candidates) {
+    if (!recipe) continue;
+    const fromState = recipe.from;
+    if (fromState && fromState !== itemState) {
+      continue;
+    }
+    const action = recipe.action;
+    const resultState = recipe.to;
+    if (!action || resultState == null) {
+      continue;
+    }
+    return recipe;
+  }
+  return null;
+}
+
+function combinationKey(type, state) {
+  if (!type) return null;
+  return `${type}|${state ?? ''}`;
+}
+
+function buildCombinationIndex(recipes) {
+  const index = new Map();
+  (recipes || []).forEach((recipe) => {
+    if (!recipe) return;
+    const inputs = Array.isArray(recipe.inputs) ? recipe.inputs : [];
+    if (inputs.length !== 2) return;
+    const normalized = inputs.map((component) => {
+      if (!component || !component.type) return null;
+      return { type: component.type, state: component.state ?? null };
+    });
+    if (normalized.some((entry) => !entry)) return;
+    for (let i = 0; i < 2; i += 1) {
+      const primary = normalized[i];
+      const secondary = normalized[1 - i];
+      const key = combinationKey(primary.type, primary.state);
+      if (!key) continue;
+      const bucket = index.get(key);
+      const entry = { requirement: secondary, recipe };
+      if (bucket) {
+        bucket.push(entry);
+      } else {
+        index.set(key, [entry]);
+      }
+    }
+  });
+  return index;
+}
+
+function findCombinationFromIndex(index, typeA, stateA, typeB, stateB) {
+  if (!index || !typeA || !typeB) return null;
+  const keys = new Set();
+  keys.add(combinationKey(typeA, stateA ?? null));
+  keys.add(combinationKey(typeA, null));
+  for (const key of keys) {
+    if (!key) continue;
+    const bucket = index.get(key);
+    if (!bucket) continue;
+    for (const entry of bucket) {
+      if (matchRequirement(typeB, stateB, entry.requirement)) {
+        return entry.recipe;
+      }
+    }
+  }
+  return null;
+}
+
+function buildCustomItemMap(config) {
+  const map = new Map();
+  const customItems = Array.isArray(config?.customItems) ? config.customItems : [];
+  customItems.forEach((item) => {
+    if (item && item.type && item.image) {
+      map.set(item.type, item.image);
+    }
+  });
+  return map;
+}
+
+function resolveItemImageFromConfig(config, itemType, state, customItemMap) {
+  if (!itemType) return null;
+  if (customItemMap?.has(itemType)) {
+    return customItemMap.get(itemType);
+  }
+  const def = itemDefinition(itemType);
+  const stateKey = state || def.defaultState;
+  if (stateKey && def.states?.[stateKey]?.image) {
+    return def.states[stateKey].image;
+  }
+  if (def.states) {
+    for (const value of Object.values(def.states)) {
+      if (value?.image) {
+        return value.image;
+      }
+    }
+  }
+  return null;
+}
+
+function buildOrderMetadata(config) {
+  const customItemMap = buildCustomItemMap(config);
+  const orderImages = new Map();
+  const componentCache = new Map();
+  const orderLookup = new Map();
+  const mapping = config?.orderMapping || {};
+  Object.entries(mapping).forEach(([itemType, dish]) => {
+    if (dish) {
+      orderLookup.set(dish, itemType);
+    }
+  });
+  Object.keys(ITEM_LIBRARY).forEach((itemType) => {
+    const info = itemDefinition(itemType);
+    const defaultState = info.defaultState || 'raw';
+    const image = resolveItemImageFromConfig(config, itemType, defaultState, customItemMap);
+    if (image) {
+      orderImages.set(itemType, image);
+    }
+    const components = Array.isArray(info.components) ? info.components : [];
+    if (components.length) {
+      const componentMeta = components.map((component) => ({
+        type: component.type,
+        state: component.state,
+        label: formatItemDisplay(component.type, component.state),
+        image: resolveItemImageFromConfig(config, component.type, component.state, customItemMap),
+      }));
+      componentCache.set(itemType, {
+        labels: componentMeta.map((c) => c.label),
+        items: componentMeta,
+      });
+    }
+  });
+  return { customItemMap, orderImages, componentCache, orderLookup };
+}
+
+function buildRuntimeMetadata(config) {
+  const cookingRecipes = Array.isArray(config?.cookingRecipes) && config.cookingRecipes.length
+    ? config.cookingRecipes
+    : COOKING_RECIPES;
+  const combinationRecipes = Array.isArray(config?.combinationRecipes) && config.combinationRecipes.length
+    ? config.combinationRecipes
+    : COMBINATION_RECIPES;
+  const metadata = buildOrderMetadata(config || {});
+  metadata.cookingLookup = buildCookingLookup(cookingRecipes);
+  metadata.combinationIndex = buildCombinationIndex(combinationRecipes);
+  return metadata;
+}
+
+function hydrateOrderData(order, runtime, config) {
+  if (!order) return order;
+  const rt = runtime || {};
+  const cfg = config || {};
+  if (!order.itemType && order.dish) {
+    if (rt.orderLookup?.has(order.dish)) {
+      order.itemType = rt.orderLookup.get(order.dish);
+    } else {
+      const mapping = cfg.orderMapping || {};
+      const entry = Object.entries(mapping).find(([, value]) => value === order.dish);
+      if (entry) {
+        order.itemType = entry[0];
+      }
+    }
+  }
+  const itemType = order.itemType;
+  if (!itemType) {
+    return order;
+  }
+  if (!order.image) {
+    const image = (rt.orderImages && rt.orderImages.get(itemType))
+      || resolveItemImageFromConfig(cfg, itemType, itemDefinition(itemType).defaultState, rt.customItemMap);
+    if (image) {
+      order.image = image;
+    }
+  }
+  if (!order.components || !order.componentItems) {
+    const cached = rt.componentCache?.get(itemType);
+    if (cached) {
+      order.components = [...cached.labels];
+      order.componentItems = cached.items.map((item) => ({ ...item }));
+    } else {
+      const info = itemDefinition(itemType);
+      const components = Array.isArray(info.components) ? info.components : [];
+      if (components.length) {
+        const meta = components.map((component) => ({
+          type: component.type,
+          state: component.state,
+          label: formatItemDisplay(component.type, component.state),
+          image: resolveItemImageFromConfig(cfg, component.type, component.state, rt.customItemMap),
+        }));
+        order.components = meta.map((c) => c.label);
+        order.componentItems = meta;
+      }
+    }
+  }
+  return order;
+}
+
 export const PLAYFIELD_WIDTH = 800;
 export const PLAYFIELD_HEIGHT = 600;
 export const PLAYER_RADIUS = 32;
@@ -182,11 +402,11 @@ function itemDefinition(type) {
 }
 
 function ingredientTypes() {
-  return Object.keys(ITEM_LIBRARY).filter((key) => key.startsWith('ingredient_'));
+  return Array.from(INGREDIENT_TYPES);
 }
 
 function dishTypes() {
-  return Object.keys(ITEM_LIBRARY).filter((key) => ITEM_LIBRARY[key]?.dish);
+  return Array.from(DISH_TYPES);
 }
 
 function defaultItemState(type) {
@@ -481,6 +701,16 @@ function cloneItems(items) {
   return (items || []).map((item) => cloneItem(item));
 }
 
+function buildItemLookup(items) {
+  const lookup = new Map();
+  for (const item of items || []) {
+    if (item && Number.isFinite(item.id)) {
+      lookup.set(item.id, item);
+    }
+  }
+  return lookup;
+}
+
 function cloneState(state) {
   if (!state) return null;
   const config = state.config ? { ...state.config } : {};
@@ -494,9 +724,10 @@ function cloneState(state) {
   } else {
     config.movingObstacles = [];
   }
+  const items = cloneItems(state.items);
   return {
     players: clonePlayers(state.players),
-    items: cloneItems(state.items),
+    items,
     orders: Array.isArray(state.orders) ? state.orders.map((o) => ({ ...o })) : [],
     score: Number(state.score) || 0,
     timer: Number(state.timer) || 0,
@@ -504,6 +735,9 @@ function cloneState(state) {
     config,
     nextItemId: Number(state.nextItemId) || 1,
     resetScheduled: Boolean(state.resetScheduled),
+    configRevision: Number(state.configRevision) || 0,
+    hostId: state.hostId || '',
+    clientManaged: Boolean(state.clientManaged),
   };
 }
 
@@ -545,6 +779,9 @@ export class LocalSimulator {
     this.timerAccumulator = 0;
     this.orderAccumulator = 0;
     this.cookingTasks = new Map();
+    this.runtime = buildRuntimeMetadata({});
+    this.configRevision = 0;
+    this.itemLookup = new Map();
   }
 
   hasState() {
@@ -563,11 +800,77 @@ export class LocalSimulator {
     this.dirty = false;
   }
 
+  ensureItemLookup() {
+    if (!(this.itemLookup instanceof Map)) {
+      this.itemLookup = new Map();
+    }
+    return this.itemLookup;
+  }
+
+  rebuildItemLookup() {
+    this.itemLookup = buildItemLookup(this.state?.items);
+  }
+
+  registerWorldItem(item, assignNewId = false) {
+    if (!this.state) return null;
+    const worldItem = { ...item };
+    if (assignNewId || !Number.isFinite(worldItem.id)) {
+      worldItem.id = this.state.nextItemId;
+      this.state.nextItemId += 1;
+    } else if (worldItem.id >= this.state.nextItemId) {
+      this.state.nextItemId = worldItem.id + 1;
+    }
+    this.state.items.push(worldItem);
+    this.ensureItemLookup().set(worldItem.id, worldItem);
+    return worldItem;
+  }
+
+  removeWorldItem(target) {
+    if (!this.state) return null;
+    const lookup = this.ensureItemLookup();
+    const itemId = typeof target === 'number' ? target : target?.id;
+    if (!Number.isFinite(itemId)) {
+      return null;
+    }
+    const existing = lookup.get(itemId);
+    if (!existing) {
+      return null;
+    }
+    lookup.delete(itemId);
+    const index = this.state.items.findIndex((itm) => itm.id === itemId);
+    if (index !== -1) {
+      this.state.items.splice(index, 1);
+    }
+    return existing;
+  }
+
+  clearWorldItems() {
+    if (!this.state) return;
+    this.state.items = [];
+    this.ensureItemLookup().clear();
+  }
+
+  rebuildRuntime() {
+    const cfg = this.state?.config || {};
+    this.runtime = buildRuntimeMetadata(cfg);
+    this.configRevision = Number(this.state?.configRevision) || 0;
+    if (Array.isArray(this.state?.orders)) {
+      this.state.orders = this.state.orders.map((order) => this.hydrateOrder({ ...order }));
+    }
+  }
+
+  hydrateOrder(order) {
+    if (!order) return order;
+    hydrateOrderData(order, this.runtime, this.state?.config || {});
+    return order;
+  }
+
   loadState(state) {
     this.state = cloneState(state);
     this.timerAccumulator = 0;
     this.orderAccumulator = 0;
     this.cookingTasks.clear();
+    this.rebuildItemLookup();
     if (!Array.isArray(this.state?.config?.staticObstacles)) {
       this.state.config.staticObstacles = [];
     }
@@ -602,6 +905,7 @@ export class LocalSimulator {
         return cloned;
       });
     }
+    this.rebuildRuntime();
     this.dirty = true;
   }
 
@@ -610,6 +914,7 @@ export class LocalSimulator {
       this.loadState(state);
       return;
     }
+    let runtimeChanged = false;
     if (state?.config) {
       const incomingConfig = state.config || {};
       this.state.config = { ...incomingConfig };
@@ -619,6 +924,14 @@ export class LocalSimulator {
       this.state.config.movingObstacles = Array.isArray(incomingConfig.movingObstacles)
         ? incomingConfig.movingObstacles.map((ob) => ({ ...ob }))
         : [];
+      runtimeChanged = true;
+    }
+    if (Number.isFinite(state?.configRevision)) {
+      const revision = Number(state.configRevision);
+      if (revision !== this.configRevision) {
+        runtimeChanged = true;
+      }
+      this.state.configRevision = revision;
     }
     if (Number.isFinite(state?.nextItemId)) {
       const incomingNext = Number(state.nextItemId);
@@ -656,6 +969,9 @@ export class LocalSimulator {
         this.dirty = true;
       }
     });
+    if (runtimeChanged) {
+      this.rebuildRuntime();
+    }
   }
 
   ensurePlayer(playerId) {
@@ -698,7 +1014,7 @@ export class LocalSimulator {
       if (this.state.timer <= 0) {
         this.state.timer = 0;
         this.state.gameOver = true;
-        this.state.items = [];
+        this.clearWorldItems();
       }
       this.dirty = true;
     }
@@ -723,37 +1039,7 @@ export class LocalSimulator {
           changed = true;
         } else {
           const updated = { ...order, remaining };
-          if (!updated.itemType) {
-            const itemType = this.resolveOrderItemType(updated.dish);
-            if (itemType) {
-              updated.itemType = itemType;
-            }
-          }
-          if (!updated.image && updated.itemType) {
-            const info = itemDefinition(updated.itemType);
-            const img = this.resolveItemImage(updated.itemType, info.defaultState);
-            if (img) {
-              updated.image = img;
-            }
-          }
-          if ((!updated.components || !updated.componentItems) && updated.itemType) {
-            const info = itemDefinition(updated.itemType);
-            const componentMeta = [];
-            (info.components || []).forEach((component) => {
-              const compType = component.type;
-              const compState = component.state;
-              componentMeta.push({
-                type: compType,
-                state: compState,
-                label: formatItemDisplay(compType, compState),
-                image: this.resolveItemImage(compType, compState),
-              });
-            });
-            if (componentMeta.length) {
-              updated.componentItems = componentMeta;
-              updated.components = componentMeta.map((c) => c.label);
-            }
-          }
+          this.hydrateOrder(updated);
           if (remaining !== order.remaining) {
             changed = true;
           }
@@ -799,28 +1085,30 @@ export class LocalSimulator {
 
       if (!info.resultItemId && progress >= 1) {
         const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
-        const newItem = {
-          id: this.state.nextItemId,
+        const worldItem = this.registerWorldItem({
+          id: 0,
           type: task.result_type,
           x: zone.x,
           y: zone.y,
           state: task.result_state,
           display,
-        };
-        this.state.nextItemId += 1;
-        this.state.items.push(newItem);
+        }, true);
         zone.occupied = false;
+        if (!worldItem) {
+          this.dirty = true;
+          continue;
+        }
         task.displayText = display;
-        task.result_item_id = newItem.id;
+        task.result_item_id = worldItem.id;
         task.finishedAt = now;
-        info.resultItemId = newItem.id;
+        info.resultItemId = worldItem.id;
         info.spawnedAt = now;
         this.dirty = true;
         continue;
       }
 
       if (info.resultItemId && !info.burned) {
-        const stillPresent = this.state.items.some((itm) => itm.id === info.resultItemId);
+        const stillPresent = this.ensureItemLookup().has(info.resultItemId);
         if (!stillPresent) {
           delete zone.cooking;
           this.cookingTasks.delete(taskId);
@@ -833,7 +1121,10 @@ export class LocalSimulator {
         );
         const burnLimit = burnable ? duration * 4 : 0;
         if (burnLimit > 0 && elapsed >= burnLimit) {
-          this.state.items = this.state.items.filter((itm) => itm.id !== info.resultItemId);
+          const removed = this.removeWorldItem(info.resultItemId);
+          if (!removed) {
+            continue;
+          }
           task.displayText = '消し炭になってしまった！';
           task.progress = 0;
           task.remaining = 0;
@@ -921,19 +1212,22 @@ export class LocalSimulator {
   }
 
   pickupNearbyItem(player, x, y) {
-    let grabbedIndex = -1;
-    for (let i = 0; i < this.state.items.length; i += 1) {
-      const item = this.state.items[i];
-      if (distanceSquared(item.x, item.y, x, y) < 50 * 50) {
-        grabbedIndex = i;
+    const radiusSq = 50 * 50;
+    let candidate = null;
+    for (const item of this.state.items) {
+      if (distanceSquared(item.x, item.y, x, y) < radiusSq) {
+        candidate = item;
         break;
       }
     }
-    if (grabbedIndex === -1) {
+    if (!candidate) {
       return false;
     }
-    const [item] = this.state.items.splice(grabbedIndex, 1);
-    player.currentItem = { ...item };
+    const removed = this.removeWorldItem(candidate);
+    if (!removed) {
+      return false;
+    }
+    player.currentItem = { ...removed };
     return true;
   }
 
@@ -975,34 +1269,44 @@ export class LocalSimulator {
   resolveActionForItem(item) {
     if (!item) return null;
     const cfg = this.state.config || {};
-    const recipes = Array.isArray(cfg.cookingRecipes) && cfg.cookingRecipes.length
-      ? cfg.cookingRecipes
-      : COOKING_RECIPES;
-    for (const recipe of recipes) {
-      if (!recipe || recipe.type !== item.type) continue;
-      const fromState = recipe.from;
-      if (fromState && fromState !== item.state) {
-        continue;
+    let recipe = findCookingRecipeFromLookup(this.runtime?.cookingLookup, item.type, item.state);
+    if (!recipe) {
+      const recipes = Array.isArray(cfg.cookingRecipes) && cfg.cookingRecipes.length
+        ? cfg.cookingRecipes
+        : COOKING_RECIPES;
+      for (const candidate of recipes) {
+        if (!candidate || candidate.type !== item.type) continue;
+        const fromState = candidate.from;
+        if (fromState && fromState !== item.state) {
+          continue;
+        }
+        const action = candidate.action;
+        const resultState = candidate.to ?? item.state;
+        if (!action || resultState == null) {
+          continue;
+        }
+        recipe = candidate;
+        break;
       }
-      const action = recipe.action;
-      const resultState = recipe.to ?? item.state;
-      if (!action || resultState == null) {
-        continue;
-      }
-      const resultType = recipe.resultType || item.type;
-      const baseDuration = action === 'cut'
-        ? Number(cfg.cutDuration) || 2.0
-        : Number(cfg.bakeDuration) || 3.0;
-      const duration = Number(recipe.duration) || baseDuration;
-      return {
-        action,
-        resultState,
-        resultType,
-        duration,
-        display: recipe.display,
-      };
     }
-    return null;
+    if (!recipe) return null;
+    const action = recipe.action;
+    const resultState = recipe.to ?? item.state;
+    if (!action || resultState == null) {
+      return null;
+    }
+    const resultType = recipe.resultType || item.type;
+    const baseDuration = action === 'cut'
+      ? Number(cfg.cutDuration) || 2.0
+      : Number(cfg.bakeDuration) || 3.0;
+    const duration = Number(recipe.duration) || baseDuration;
+    return {
+      action,
+      resultState,
+      resultType,
+      duration,
+      display: recipe.display,
+    };
   }
 
   startCooking(player, x, y) {
@@ -1065,7 +1369,16 @@ export class LocalSimulator {
       if (distanceSquared(other.x, other.y, x, y) > 60 * 60) {
         continue;
       }
-      const recipe = findCombinationRecipe(recipes, item.type, item.state, other.type, other.state);
+      let recipe = findCombinationFromIndex(
+        this.runtime?.combinationIndex,
+        item.type,
+        item.state,
+        other.type,
+        other.state,
+      );
+      if (!recipe) {
+        recipe = findCombinationRecipe(recipes, item.type, item.state, other.type, other.state);
+      }
       if (!recipe) {
         continue;
       }
@@ -1120,8 +1433,6 @@ export class LocalSimulator {
     if (!item) return;
     item.x = x;
     item.y = y;
-    item.id = this.state.nextItemId;
-    this.state.nextItemId += 1;
     item.display = formatItemDisplay(item.type, item.state);
     const transfers = this.state.config?.transferObjects || [];
     for (const transfer of transfers) {
@@ -1134,7 +1445,7 @@ export class LocalSimulator {
         break;
       }
     }
-    this.state.items.push({ ...item });
+    this.registerWorldItem(item, true);
     player.currentItem = null;
   }
 
@@ -1155,49 +1466,20 @@ export class LocalSimulator {
     };
     if (itemType) {
       order.itemType = itemType;
-      const image = this.resolveItemImage(itemType, info.defaultState);
-      if (image) {
-        order.image = image;
-      }
-      const components = (info.components || []).map((component) => ({
-        type: component.type,
-        state: component.state,
-        label: formatItemDisplay(component.type, component.state),
-        image: this.resolveItemImage(component.type, component.state),
-      }));
-      if (components.length) {
-        order.componentItems = components;
-        order.components = components.map((c) => c.label);
-      }
     }
-    return order;
+    return this.hydrateOrder(order);
   }
 
   resolveOrderItemType(dish) {
+    if (!dish) return null;
+    if (this.runtime?.orderLookup?.has(dish)) {
+      return this.runtime.orderLookup.get(dish);
+    }
     const mapping = this.state.config?.orderMapping || {};
     return Object.entries(mapping).find(([, value]) => value === dish)?.[0] || null;
   }
 
   resolveItemImage(itemType, state) {
-    if (!itemType) return null;
-    const custom = (this.state.config?.customItems || []).find(
-      (item) => item?.type === itemType && item.image,
-    );
-    if (custom?.image) {
-      return custom.image;
-    }
-    const def = itemDefinition(itemType);
-    const stateKey = state || def.defaultState;
-    if (stateKey && def.states?.[stateKey]?.image) {
-      return def.states[stateKey].image;
-    }
-    if (def.states) {
-      for (const value of Object.values(def.states)) {
-        if (value?.image) {
-          return value.image;
-        }
-      }
-    }
-    return null;
+    return resolveItemImageFromConfig(this.state?.config, itemType, state, this.runtime?.customItemMap);
   }
 }

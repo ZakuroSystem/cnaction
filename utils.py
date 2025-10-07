@@ -146,6 +146,14 @@ ITEM_LIBRARY = {
 }
 
 
+_INGREDIENT_TYPES = tuple(
+    key for key in ITEM_LIBRARY if key.startswith('ingredient_')
+)
+_DISH_TYPES = tuple(
+    key for key, value in ITEM_LIBRARY.items() if value.get('dish')
+)
+
+
 COOKING_RECIPES = [
     {
         'type': 'ingredient_burger_buns',
@@ -266,6 +274,213 @@ def find_combination_recipe(recipes: List[dict], type_a: str, state_a: str, type
     return None
 
 
+def _normalize_state_key(value: Optional[str]) -> Optional[str]:
+    return value or None
+
+
+def build_cooking_lookup(recipes: List[dict]) -> Dict[str, List[dict]]:
+    lookup: Dict[str, List[dict]] = {}
+    for recipe in recipes or []:
+        if not isinstance(recipe, dict):
+            continue
+        item_type = recipe.get('type')
+        if not item_type:
+            continue
+        lookup.setdefault(item_type, []).append(recipe)
+    return lookup
+
+
+def find_cooking_recipe(lookup: Dict[str, List[dict]], item_type: Optional[str], item_state: Optional[str]) -> Optional[dict]:
+    if not lookup or not item_type:
+        return None
+    for recipe in lookup.get(item_type, []):
+        if not isinstance(recipe, dict):
+            continue
+        required_state = recipe.get('from')
+        if required_state and required_state != item_state:
+            continue
+        action = recipe.get('action')
+        result_state = recipe.get('to')
+        if not action or result_state is None:
+            continue
+        return recipe
+    return None
+
+
+def _combination_key(item_type: Optional[str], item_state: Optional[str]) -> Optional[tuple]:
+    if not item_type:
+        return None
+    return item_type, _normalize_state_key(item_state)
+
+
+def build_combination_index(recipes: List[dict]) -> Dict[tuple, List[tuple]]:
+    index: Dict[tuple, List[tuple]] = {}
+    for recipe in recipes or []:
+        if not isinstance(recipe, dict):
+            continue
+        inputs = recipe.get('inputs') or []
+        if len(inputs) != 2:
+            continue
+        normalized = []
+        for component in inputs:
+            if not isinstance(component, dict):
+                normalized = []
+                break
+            key = _combination_key(component.get('type'), component.get('state'))
+            if not key:
+                normalized = []
+                break
+            normalized.append({'type': key[0], 'state': key[1]})
+        if len(normalized) != 2:
+            continue
+        for first_idx in (0, 1):
+            primary = normalized[first_idx]
+            secondary = normalized[1 - first_idx]
+            bucket = index.setdefault((primary['type'], primary['state']), [])
+            bucket.append((secondary, recipe))
+    return index
+
+
+def find_combination_recipe_from_index(index: Dict[tuple, List[tuple]], type_a: Optional[str], state_a: Optional[str],
+                                       type_b: Optional[str], state_b: Optional[str]) -> Optional[dict]:
+    if not index or not type_a or not type_b:
+        return None
+    keys = []
+    normalized_state = _normalize_state_key(state_a)
+    keys.append((type_a, normalized_state))
+    keys.append((type_a, None))
+    seen = set()
+    for key in keys:
+        if key in seen:
+            continue
+        seen.add(key)
+        bucket = index.get(key)
+        if not bucket:
+            continue
+        for requirement, recipe in bucket:
+            if match_requirement(type_b, state_b, requirement):
+                return recipe
+    return None
+
+
+def build_runtime_metadata(cfg: dict) -> dict:
+    cfg = cfg or {}
+    runtime: dict = {}
+
+    cooking_recipes = cfg.get('cookingRecipes') or []
+    combination_recipes = cfg.get('combinationRecipes') or []
+    runtime['cooking_lookup'] = build_cooking_lookup(cooking_recipes)
+    runtime['combination_index'] = build_combination_index(combination_recipes)
+
+    mapping = cfg.get('orderMapping') or {}
+    runtime['order_lookup'] = {
+        dish: item_type
+        for item_type, dish in mapping.items()
+        if isinstance(dish, str) and dish
+    }
+
+    custom_items = {}
+    for item in cfg.get('customItems') or []:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get('type')
+        image = item.get('image')
+        if not item_type or not image:
+            continue
+        normalized = _normalize_static_url(image)
+        custom_items[item_type] = normalized or image
+    runtime['custom_items'] = custom_items
+
+    order_images = {}
+    component_cache = {}
+    for item_type in ITEM_LIBRARY.keys():
+        default_state = default_item_state(item_type)
+        image = custom_items.get(item_type) or resolve_item_image(cfg, item_type, default_state)
+        if image:
+            order_images[item_type] = image
+
+        info = item_definition(item_type)
+        components_meta = []
+        for component in info.get('components', []) or []:
+            comp_type = component.get('type')
+            if not comp_type:
+                continue
+            comp_state = component.get('state')
+            label = format_item_display(comp_type, comp_state)
+            comp_image = custom_items.get(comp_type) or resolve_item_image(cfg, comp_type, comp_state)
+            components_meta.append({
+                'type': comp_type,
+                'state': comp_state,
+                'label': label,
+                'image': comp_image,
+            })
+        if components_meta:
+            component_cache[item_type] = {
+                'labels': tuple(component['label'] for component in components_meta),
+                'items': tuple(components_meta),
+            }
+
+    runtime['order_images'] = order_images
+    runtime['component_cache'] = component_cache
+    return runtime
+
+
+def hydrate_order(cfg: dict, runtime: Optional[dict], order: dict) -> dict:
+    if not isinstance(order, dict):
+        return order
+
+    runtime = runtime or {}
+
+    if not order.get('itemType'):
+        dish = order.get('dish', '')
+        if dish:
+            lookup = runtime.get('order_lookup') or {}
+            item_type = lookup.get(dish)
+            if not item_type:
+                item_type = resolve_order_item_type(cfg, dish)
+            if item_type:
+                order['itemType'] = item_type
+
+    item_type = order.get('itemType')
+    if not item_type:
+        return order
+
+    if not order.get('image'):
+        image = (runtime.get('order_images') or {}).get(item_type)
+        if not image:
+            image = resolve_item_image(cfg, item_type, default_item_state(item_type))
+        if image:
+            order['image'] = image
+
+    components_missing = not order.get('components') or not order.get('componentItems')
+    if components_missing:
+        cached = (runtime.get('component_cache') or {}).get(item_type)
+        if cached:
+            order['components'] = list(cached['labels'])
+            order['componentItems'] = [dict(component) for component in cached['items']]
+        else:
+            info = item_definition(item_type)
+            components_meta = []
+            for component in info.get('components', []) or []:
+                comp_type = component.get('type')
+                if not comp_type:
+                    continue
+                comp_state = component.get('state')
+                label = format_item_display(comp_type, comp_state)
+                comp_image = resolve_item_image(cfg, comp_type, comp_state)
+                components_meta.append({
+                    'type': comp_type,
+                    'state': comp_state,
+                    'label': label,
+                    'image': comp_image,
+                })
+            if components_meta:
+                order['components'] = [c['label'] for c in components_meta]
+                order['componentItems'] = components_meta
+
+    return order
+
+
 def _normalize_static_url(path: str) -> Optional[str]:
     if not path:
         return None
@@ -300,11 +515,11 @@ def resolve_order_item_type(cfg: dict, dish: str) -> Optional[str]:
 
 
 def ingredient_types() -> List[str]:
-    return [key for key in ITEM_LIBRARY if key.startswith('ingredient_')]
+    return list(_INGREDIENT_TYPES)
 
 
 def dish_types() -> List[str]:
-    return [key for key, value in ITEM_LIBRARY.items() if value.get('dish')]
+    return list(_DISH_TYPES)
 
 
 def get_dish_name(item_type: str) -> Optional[str]:
@@ -367,7 +582,7 @@ def resolve_item_image(cfg: dict, item_type: Optional[str], state: Optional[str]
     return None
 
 
-def build_order(cfg: dict) -> dict:
+def build_order(cfg: dict, runtime: Optional[dict] = None) -> dict:
     mapping = cfg.get('orderMapping') or {}
     available_types = list(mapping.keys())
     if not available_types:
@@ -378,8 +593,10 @@ def build_order(cfg: dict) -> dict:
     if not dish_name and item_type:
         dish_name = get_dish_name(item_type)
 
-    limit = cfg.get('orderTimeLimit', 30)
-    info = item_definition(item_type) if item_type else {}
+    try:
+        limit = int(cfg.get('orderTimeLimit', 30))
+    except (TypeError, ValueError):
+        limit = 30
 
     order = {
         'dish': dish_name or '',
@@ -388,28 +605,8 @@ def build_order(cfg: dict) -> dict:
 
     if item_type:
         order['itemType'] = item_type
-        state = info.get('default_state')
-        image = resolve_item_image(cfg, item_type, state)
-        if image:
-            order['image'] = image
 
-        components_meta = []
-        for component in info.get('components', []) or []:
-            comp_type = component.get('type')
-            comp_state = component.get('state')
-            label = format_item_display(comp_type, comp_state)
-            comp_image = resolve_item_image(cfg, comp_type, comp_state)
-            components_meta.append({
-                'type': comp_type,
-                'state': comp_state,
-                'label': label,
-                'image': comp_image,
-            })
-        if components_meta:
-            order['components'] = [c['label'] for c in components_meta]
-            order['componentItems'] = components_meta
-
-    return order
+    return hydrate_order(cfg, runtime, order)
 
 # Configuration helpers
 
@@ -471,40 +668,28 @@ def parse_transfer_objects(s: str) -> list:
 def update_orders(room: str, rooms: Dict[str, 'RoomState']):
     rs = rooms[room]
     cfg = rs.config
-    new_orders = []
-    for o in rs.orders:
-        o['remaining'] = max(0, o.get('remaining', 0) - 1)
-        if o['remaining'] <= 0:
-            rs.score -= cfg.get('wrongOrderPenalty', 5)
-            new_orders.append(build_order(cfg))
-        else:
-            if 'itemType' not in o:
-                item_type = resolve_order_item_type(cfg, o.get('dish', ''))
-                if item_type:
-                    o['itemType'] = item_type
-            if 'image' not in o:
-                image = resolve_item_image(cfg, o.get('itemType'))
-                if image:
-                    o['image'] = image
-            if 'components' not in o or 'componentItems' not in o:
-                info = item_definition(o.get('itemType'))
-                components_meta = []
-                for component in info.get('components', []) or []:
-                    comp_type = component.get('type')
-                    comp_state = component.get('state')
-                    label = format_item_display(comp_type, comp_state)
-                    comp_image = resolve_item_image(cfg, comp_type, comp_state)
-                    components_meta.append({
-                        'type': comp_type,
-                        'state': comp_state,
-                        'label': label,
-                        'image': comp_image,
-                    })
-                if components_meta:
-                    o['components'] = [c['label'] for c in components_meta]
-                    o['componentItems'] = components_meta
-            new_orders.append(o)
-    rs.orders = new_orders
+    runtime = getattr(rs, 'runtime', {})
+    penalty = cfg.get('wrongOrderPenalty', 5)
+    try:
+        penalty = int(penalty)
+    except (TypeError, ValueError):
+        penalty = 5
+
+    updated_orders = []
+    for order in rs.orders:
+        if not isinstance(order, dict):
+            continue
+        remaining = max(0, order.get('remaining', 0) - 1)
+        if remaining <= 0:
+            rs.score -= penalty
+            updated_orders.append(build_order(cfg, runtime))
+            continue
+
+        order['remaining'] = remaining
+        hydrate_order(cfg, runtime, order)
+        updated_orders.append(order)
+
+    rs.orders = updated_orders
 
 def export_config_response(room: str, rooms: Dict[str, 'RoomState']):
     cfg = rooms.get(room).config if room in rooms else get_default_config()
