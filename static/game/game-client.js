@@ -154,7 +154,6 @@ export class GameClient {
   }
 
   handleKeyDown(event) {
-    if (event.repeat) return;
     if (event.code === 'Space') {
       if (!this.spaceDown) {
         this.spaceDown = true;
@@ -165,7 +164,9 @@ export class GameClient {
     }
 
     if (this.isMovementKey(event.code)) {
-      this.setKeyState(event.code, true);
+      if (!event.repeat) {
+        this.setKeyState(event.code, true);
+      }
       event.preventDefault();
     }
   }
