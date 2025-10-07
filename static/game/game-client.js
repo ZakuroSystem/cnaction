@@ -2,7 +2,7 @@ import { AssetCache } from './asset-cache.js';
 import { MobileControls } from './mobile-controls.js';
 import { Renderer } from './renderer.js';
 import { UIManager } from './ui-manager.js';
-import { LocalSimulator } from './local-simulator.js';
+import { LocalSimulator, PLAYER_RADIUS, resolvePlayerMovement } from './local-simulator.js';
 
 export class GameClient {
   constructor(container, socket, onDispose = () => {}) {
@@ -124,6 +124,13 @@ export class GameClient {
       const me = state.players[window.playerId];
       if (!this.localPosition) {
         this.localPosition = { x: me.x, y: me.y };
+      } else if (!this.isHost) {
+        const dx = this.localPosition.x - me.x;
+        const dy = this.localPosition.y - me.y;
+        if (dx * dx + dy * dy > 36) {
+          this.localPosition.x = me.x;
+          this.localPosition.y = me.y;
+        }
       }
       if (!this.lastSentPosition && this.localPosition) {
         this.lastSentPosition = { x: this.localPosition.x, y: this.localPosition.y };
@@ -259,17 +266,52 @@ export class GameClient {
     }
 
     const movement = this.computeMovementVector();
+    const speed = 220;
+    let targetX = this.localPosition.x;
+    let targetY = this.localPosition.y;
     if (movement.moving) {
-      const speed = 220;
       const len = Math.hypot(movement.vx, movement.vy) || 1;
-      this.localPosition.x += (movement.vx / len) * speed * dt;
-      this.localPosition.y += (movement.vy / len) * speed * dt;
+      targetX += (movement.vx / len) * speed * dt;
+      targetY += (movement.vy / len) * speed * dt;
+    }
+
+    if (this.isHost && this.localSimulator) {
+      this.localSimulator.handleMove(window.playerId, targetX, targetY);
+      const simPlayer = this.localSimulator.getPlayer(window.playerId);
+      if (simPlayer) {
+        this.localPosition.x = simPlayer.x;
+        this.localPosition.y = simPlayer.y;
+      } else {
+        this.localPosition.x = targetX;
+        this.localPosition.y = targetY;
+      }
+    } else if (this.serverState?.players?.[window.playerId]) {
+      const playerState = this.serverState.players[window.playerId];
+      playerState.x = this.localPosition.x;
+      playerState.y = this.localPosition.y;
+      if (playerState.currentItem) {
+        playerState.currentItem.x = this.localPosition.x;
+        playerState.currentItem.y = this.localPosition.y;
+      }
+      resolvePlayerMovement(this.serverState, playerState, targetX, targetY);
+      this.localPosition.x = playerState.x;
+      this.localPosition.y = playerState.y;
+    } else {
+      this.localPosition.x = targetX;
+      this.localPosition.y = targetY;
+    }
+
+    if (this.serverState?.players?.[window.playerId]) {
+      const playerState = this.serverState.players[window.playerId];
+      playerState.x = this.localPosition.x;
+      playerState.y = this.localPosition.y;
+      if (playerState.currentItem) {
+        playerState.currentItem.x = this.localPosition.x;
+        playerState.currentItem.y = this.localPosition.y;
+      }
     }
 
     this.clampLocalPosition();
-    if (this.isHost && this.localSimulator) {
-      this.localSimulator.handleMove(window.playerId, this.localPosition.x, this.localPosition.y);
-    }
     this.maybeSendMove(movement.moving);
 
     if (this.isHost && this.localSimulator) {
@@ -407,8 +449,12 @@ export class GameClient {
 
   clampLocalPosition() {
     if (!this.localPosition) return;
-    this.localPosition.x = Math.max(0, Math.min(this.canvas.width, this.localPosition.x));
-    this.localPosition.y = Math.max(0, Math.min(this.canvas.height, this.localPosition.y));
+    const minX = PLAYER_RADIUS;
+    const maxX = this.canvas.width - PLAYER_RADIUS;
+    const minY = PLAYER_RADIUS;
+    const maxY = this.canvas.height - PLAYER_RADIUS;
+    this.localPosition.x = Math.max(minX, Math.min(maxX, this.localPosition.x));
+    this.localPosition.y = Math.max(minY, Math.min(maxY, this.localPosition.y));
   }
 
   maybeSendMove(moving) {

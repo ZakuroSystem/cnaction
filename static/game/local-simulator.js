@@ -172,6 +172,11 @@ const COMBINATION_RECIPES = [
   },
 ];
 
+export const PLAYFIELD_WIDTH = 800;
+export const PLAYFIELD_HEIGHT = 600;
+export const PLAYER_RADIUS = 32;
+const COLLISION_EPSILON = 1e-6;
+
 function itemDefinition(type) {
   return ITEM_LIBRARY[type] || {};
 }
@@ -197,6 +202,213 @@ function formatItemDisplay(type, state) {
     return base;
   }
   return `${base} (${label})`;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function obstacleEntries(config) {
+  const entries = [];
+  const staticList = Array.isArray(config?.staticObstacles) ? config.staticObstacles : [];
+  staticList.forEach((obstacle) => {
+    if (obstacle && typeof obstacle === 'object') {
+      entries.push({ obstacle, pushable: false });
+    }
+  });
+  const movingList = Array.isArray(config?.movingObstacles) ? config.movingObstacles : [];
+  movingList.forEach((obstacle) => {
+    if (obstacle && typeof obstacle === 'object') {
+      entries.push({ obstacle, pushable: true });
+    }
+  });
+  return entries;
+}
+
+function obstacleMetrics(obstacle) {
+  const width = Math.max(16, Number(obstacle?.width) || 96);
+  const height = Math.max(16, Number(obstacle?.height) || 96);
+  const halfW = width / 2;
+  const halfH = height / 2;
+  const x = Number(obstacle?.x) || 0;
+  const y = Number(obstacle?.y) || 0;
+  return {
+    x,
+    y,
+    halfW,
+    halfH,
+    left: x - halfW,
+    right: x + halfW,
+    top: y - halfH,
+    bottom: y + halfH,
+  };
+}
+
+function rectanglesOverlap(a, b) {
+  return (
+    a.left < b.right - COLLISION_EPSILON &&
+    a.right > b.left + COLLISION_EPSILON &&
+    a.top < b.bottom - COLLISION_EPSILON &&
+    a.bottom > b.top + COLLISION_EPSILON
+  );
+}
+
+function circleRectCollision(cx, cy, radius, rect) {
+  const closestX = clamp(cx, rect.left, rect.right);
+  const closestY = clamp(cy, rect.top, rect.bottom);
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+function tryMoveObstacle(entries, obstacle, dx, dy) {
+  if (Math.abs(dx) < COLLISION_EPSILON && Math.abs(dy) < COLLISION_EPSILON) {
+    return { dx: 0, dy: 0 };
+  }
+  const metrics = obstacleMetrics(obstacle);
+  const newX = clamp(metrics.x + dx, metrics.halfW, PLAYFIELD_WIDTH - metrics.halfW);
+  const newY = clamp(metrics.y + dy, metrics.halfH, PLAYFIELD_HEIGHT - metrics.halfH);
+  const actualDx = newX - metrics.x;
+  const actualDy = newY - metrics.y;
+  const newRect = {
+    left: newX - metrics.halfW,
+    right: newX + metrics.halfW,
+    top: newY - metrics.halfH,
+    bottom: newY + metrics.halfH,
+  };
+  for (const entry of entries) {
+    const other = entry.obstacle;
+    if (other === obstacle) continue;
+    const otherMetrics = obstacleMetrics(other);
+    if (rectanglesOverlap(newRect, otherMetrics)) {
+      return { dx: 0, dy: 0 };
+    }
+  }
+  obstacle.x = newX;
+  obstacle.y = newY;
+  return { dx: actualDx, dy: actualDy };
+}
+
+function resolveAxis(entries, currentX, currentY, targetValue, axis) {
+  let candidate = targetValue;
+  let obstaclesMoved = false;
+  const start = axis === 'x' ? currentX : currentY;
+  const delta = candidate - start;
+  if (Math.abs(delta) < COLLISION_EPSILON) {
+    return { position: start, obstaclesMoved: false };
+  }
+
+  for (const entry of entries) {
+    const obstacle = entry.obstacle;
+    const metrics = obstacleMetrics(obstacle);
+    const circleX = axis === 'x' ? candidate : currentX;
+    const circleY = axis === 'y' ? candidate : currentY;
+    if (!circleRectCollision(circleX, circleY, PLAYER_RADIUS, metrics)) {
+      continue;
+    }
+
+    if (delta > 0) {
+      let limit = metrics.left - PLAYER_RADIUS;
+      if (candidate <= limit + COLLISION_EPSILON) {
+        continue;
+      }
+      if (entry.pushable) {
+        const desired = candidate - limit;
+        const movement = tryMoveObstacle(
+          entries,
+          obstacle,
+          axis === 'x' ? desired : 0,
+          axis === 'y' ? desired : 0,
+        );
+        if (
+          (axis === 'x' && Math.abs(movement.dx) > COLLISION_EPSILON) ||
+          (axis === 'y' && Math.abs(movement.dy) > COLLISION_EPSILON)
+        ) {
+          obstaclesMoved = true;
+        }
+        const updated = obstacleMetrics(obstacle);
+        limit = updated.left - PLAYER_RADIUS;
+      }
+      candidate = Math.min(candidate, limit);
+    } else if (delta < 0) {
+      let limit = metrics.right + PLAYER_RADIUS;
+      if (candidate >= limit - COLLISION_EPSILON) {
+        continue;
+      }
+      if (entry.pushable) {
+        const desired = candidate - limit;
+        const movement = tryMoveObstacle(
+          entries,
+          obstacle,
+          axis === 'x' ? desired : 0,
+          axis === 'y' ? desired : 0,
+        );
+        if (
+          (axis === 'x' && Math.abs(movement.dx) > COLLISION_EPSILON) ||
+          (axis === 'y' && Math.abs(movement.dy) > COLLISION_EPSILON)
+        ) {
+          obstaclesMoved = true;
+        }
+        const updated = obstacleMetrics(obstacle);
+        limit = updated.right + PLAYER_RADIUS;
+      }
+      candidate = Math.max(candidate, limit);
+    }
+  }
+
+  if (axis === 'x') {
+    candidate = clamp(candidate, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS);
+  } else {
+    candidate = clamp(candidate, PLAYER_RADIUS, PLAYFIELD_HEIGHT - PLAYER_RADIUS);
+  }
+
+  return { position: candidate, obstaclesMoved };
+}
+
+export function resolvePlayerMovement(state, player, targetX, targetY) {
+  if (!state || !player) {
+    return { moved: false, obstaclesMoved: false };
+  }
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+    return { moved: false, obstaclesMoved: false };
+  }
+
+  const config = state.config || {};
+  const entries = obstacleEntries(config);
+
+  const startX = Number(player.x) || 0;
+  const startY = Number(player.y) || 0;
+
+  const clampedX = clamp(targetX, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS);
+  const clampedY = clamp(targetY, PLAYER_RADIUS, PLAYFIELD_HEIGHT - PLAYER_RADIUS);
+
+  let resolvedX = clampedX;
+  let resolvedY = clampedY;
+  let obstaclesMoved = false;
+
+  if (entries.length) {
+    const resultX = resolveAxis(entries, startX, startY, clampedX, 'x');
+    resolvedX = resultX.position;
+    obstaclesMoved = obstaclesMoved || resultX.obstaclesMoved;
+    const resultY = resolveAxis(entries, resolvedX, startY, clampedY, 'y');
+    resolvedY = resultY.position;
+    obstaclesMoved = obstaclesMoved || resultY.obstaclesMoved;
+  }
+
+  const moved =
+    Math.abs(resolvedX - startX) > COLLISION_EPSILON ||
+    Math.abs(resolvedY - startY) > COLLISION_EPSILON;
+
+  if (moved) {
+    player.x = resolvedX;
+    player.y = resolvedY;
+    if (player.currentItem) {
+      player.currentItem.x = resolvedX;
+      player.currentItem.y = resolvedY;
+    }
+  }
+
+  return { moved, obstaclesMoved };
 }
 
 function cloneItem(item) {
@@ -271,6 +483,17 @@ function cloneItems(items) {
 
 function cloneState(state) {
   if (!state) return null;
+  const config = state.config ? { ...state.config } : {};
+  if (Array.isArray(state.config?.staticObstacles)) {
+    config.staticObstacles = state.config.staticObstacles.map((ob) => ({ ...ob }));
+  } else {
+    config.staticObstacles = [];
+  }
+  if (Array.isArray(state.config?.movingObstacles)) {
+    config.movingObstacles = state.config.movingObstacles.map((ob) => ({ ...ob }));
+  } else {
+    config.movingObstacles = [];
+  }
   return {
     players: clonePlayers(state.players),
     items: cloneItems(state.items),
@@ -278,7 +501,7 @@ function cloneState(state) {
     score: Number(state.score) || 0,
     timer: Number(state.timer) || 0,
     gameOver: Boolean(state.gameOver),
-    config: state.config ? { ...state.config } : {},
+    config,
     nextItemId: Number(state.nextItemId) || 1,
     resetScheduled: Boolean(state.resetScheduled),
   };
@@ -345,6 +568,12 @@ export class LocalSimulator {
     this.timerAccumulator = 0;
     this.orderAccumulator = 0;
     this.cookingTasks.clear();
+    if (!Array.isArray(this.state?.config?.staticObstacles)) {
+      this.state.config.staticObstacles = [];
+    }
+    if (!Array.isArray(this.state?.config?.movingObstacles)) {
+      this.state.config.movingObstacles = [];
+    }
     if (this.state?.config?.actionZones) {
       this.state.config.actionZones = this.state.config.actionZones.map((zone, index) => {
         const cloned = { ...zone };
@@ -382,7 +611,14 @@ export class LocalSimulator {
       return;
     }
     if (state?.config) {
-      this.state.config = { ...state.config };
+      const incomingConfig = state.config || {};
+      this.state.config = { ...incomingConfig };
+      this.state.config.staticObstacles = Array.isArray(incomingConfig.staticObstacles)
+        ? incomingConfig.staticObstacles.map((ob) => ({ ...ob }))
+        : [];
+      this.state.config.movingObstacles = Array.isArray(incomingConfig.movingObstacles)
+        ? incomingConfig.movingObstacles.map((ob) => ({ ...ob }))
+        : [];
     }
     if (Number.isFinite(state?.nextItemId)) {
       const incomingNext = Number(state.nextItemId);
@@ -436,6 +672,11 @@ export class LocalSimulator {
       this.dirty = true;
     }
     return this.state.players[playerId];
+  }
+
+  getPlayer(playerId) {
+    if (!this.state) return null;
+    return this.state.players[playerId] || null;
   }
 
   update(dt) {
@@ -620,21 +861,14 @@ export class LocalSimulator {
   }
 
   handleMove(playerId, x, y) {
-    if (!this.state) return;
+    if (!this.state) return false;
     const player = this.ensurePlayer(playerId);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    const prevX = player.x;
-    const prevY = player.y;
-    if (Math.abs(prevX - x) < 0.1 && Math.abs(prevY - y) < 0.1) {
-      return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const result = resolvePlayerMovement(this.state, player, x, y);
+    if (result.moved || result.obstaclesMoved) {
+      this.dirty = true;
     }
-    player.x = x;
-    player.y = y;
-    if (player.currentItem) {
-      player.currentItem.x = x;
-      player.currentItem.y = y;
-    }
-    this.dirty = true;
+    return result.moved || result.obstaclesMoved;
   }
 
   handleInteract(playerId, position) {
@@ -677,17 +911,13 @@ export class LocalSimulator {
   }
 
   updatePlayerPosition(player, x, y) {
+    if (!this.state) return false;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    if (Math.abs(player.x - x) < 0.1 && Math.abs(player.y - y) < 0.1) {
-      return false;
+    const result = resolvePlayerMovement(this.state, player, x, y);
+    if (result.moved || result.obstaclesMoved) {
+      this.dirty = true;
     }
-    player.x = x;
-    player.y = y;
-    if (player.currentItem) {
-      player.currentItem.x = x;
-      player.currentItem.y = y;
-    }
-    return true;
+    return result.moved || result.obstaclesMoved;
   }
 
   pickupNearbyItem(player, x, y) {

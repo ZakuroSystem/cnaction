@@ -133,6 +133,10 @@ DEFAULT_DELIVERY_ZONE = {'x': 700, 'y': 500, 'width': 150, 'height': 150}
 DEFAULT_GENERATOR = {'x': 750, 'y': 50, 'width': 96, 'height': 96}
 DEFAULT_CUT_DURATION = 2.0
 DEFAULT_BAKE_DURATION = 3.0
+PLAYFIELD_WIDTH = 800
+PLAYFIELD_HEIGHT = 600
+PLAYER_RADIUS = 32
+_COLLISION_EPSILON = 1e-6
 
 def _clone_default_action_zones():
     zones = []
@@ -356,8 +360,25 @@ def sanitize_config(cfg: dict) -> dict:
 
     cfg['foodGenerators'] = sanitized_generators
 
-    cfg.setdefault('movingObstacles', [])
-    cfg.setdefault('staticObstacles', [])
+    def _sanitize_obstacle(obstacle):
+        base = dict(obstacle or {})
+        base['x'] = _coerce_float(base.get('x'), 0.0)
+        base['y'] = _coerce_float(base.get('y'), 0.0)
+        width = _coerce_float(base.get('width'), 96.0)
+        height = _coerce_float(base.get('height'), 96.0)
+        base['width'] = max(16.0, width if width else 96.0)
+        base['height'] = max(16.0, height if height else 96.0)
+        return base
+
+    def _sanitize_obstacle_list(values):
+        sanitized = []
+        for entry in values or []:
+            if isinstance(entry, dict):
+                sanitized.append(_sanitize_obstacle(entry))
+        return sanitized
+
+    cfg['staticObstacles'] = _sanitize_obstacle_list(cfg.get('staticObstacles'))
+    cfg['movingObstacles'] = _sanitize_obstacle_list(cfg.get('movingObstacles'))
     cfg.setdefault('transferObjects', [])
 
     return cfg
@@ -486,6 +507,186 @@ def in_zone(x: float, y: float, zone: dict) -> bool:
         zone['x'] - zone['width']/2 <= x <= zone['x'] + zone['width']/2 and
         zone['y'] - zone['height']/2 <= y <= zone['y'] + zone['height']/2
     )
+
+
+def _clamp(value: float, min_value: float, max_value: float) -> float:
+    return max(min_value, min(max_value, value))
+
+
+def _gather_obstacle_entries(cfg: dict) -> list:
+    entries = []
+    for obstacle in cfg.get('staticObstacles') or []:
+        if isinstance(obstacle, dict):
+            entries.append({'obstacle': obstacle, 'pushable': False})
+    for obstacle in cfg.get('movingObstacles') or []:
+        if isinstance(obstacle, dict):
+            entries.append({'obstacle': obstacle, 'pushable': True})
+    return entries
+
+
+def _obstacle_metrics(obstacle: dict) -> dict:
+    width = max(16.0, _coerce_float(obstacle.get('width'), 96.0))
+    height = max(16.0, _coerce_float(obstacle.get('height'), 96.0))
+    half_w = width / 2
+    half_h = height / 2
+    x = _coerce_float(obstacle.get('x'), 0.0)
+    y = _coerce_float(obstacle.get('y'), 0.0)
+    return {
+        'x': x,
+        'y': y,
+        'half_w': half_w,
+        'half_h': half_h,
+        'left': x - half_w,
+        'right': x + half_w,
+        'top': y - half_h,
+        'bottom': y + half_h,
+    }
+
+
+def _rectangles_overlap(a: dict, b: dict) -> bool:
+    return (
+        a['left'] < b['right'] - _COLLISION_EPSILON
+        and a['right'] > b['left'] + _COLLISION_EPSILON
+        and a['top'] < b['bottom'] - _COLLISION_EPSILON
+        and a['bottom'] > b['top'] + _COLLISION_EPSILON
+    )
+
+
+def _circle_rect_collision(cx: float, cy: float, radius: float, rect: dict) -> bool:
+    closest_x = _clamp(cx, rect['left'], rect['right'])
+    closest_y = _clamp(cy, rect['top'], rect['bottom'])
+    dx = cx - closest_x
+    dy = cy - closest_y
+    return dx * dx + dy * dy <= radius * radius
+
+
+def _try_move_obstacle(entries: list, obstacle: dict, dx: float, dy: float) -> tuple:
+    if abs(dx) < _COLLISION_EPSILON and abs(dy) < _COLLISION_EPSILON:
+        return 0.0, 0.0
+    metrics = _obstacle_metrics(obstacle)
+    target_x = _clamp(metrics['x'] + dx, metrics['half_w'], PLAYFIELD_WIDTH - metrics['half_w'])
+    target_y = _clamp(metrics['y'] + dy, metrics['half_h'], PLAYFIELD_HEIGHT - metrics['half_h'])
+    actual_dx = target_x - metrics['x']
+    actual_dy = target_y - metrics['y']
+    new_rect = {
+        'left': target_x - metrics['half_w'],
+        'right': target_x + metrics['half_w'],
+        'top': target_y - metrics['half_h'],
+        'bottom': target_y + metrics['half_h'],
+    }
+    for entry in entries:
+        other = entry['obstacle']
+        if other is obstacle:
+            continue
+        other_metrics = _obstacle_metrics(other)
+        if _rectangles_overlap(new_rect, other_metrics):
+            return 0.0, 0.0
+    obstacle['x'] = target_x
+    obstacle['y'] = target_y
+    return actual_dx, actual_dy
+
+
+def _resolve_axis(entries: list, current_x: float, current_y: float, target_value: float, axis: str) -> tuple:
+    candidate = target_value
+    moved_obstacles = False
+    start = current_x if axis == 'x' else current_y
+    delta = candidate - start
+    if abs(delta) < _COLLISION_EPSILON:
+        return start, False
+
+    for entry in entries:
+        obstacle = entry['obstacle']
+        pushable = entry['pushable']
+        metrics = _obstacle_metrics(obstacle)
+        circle_x = candidate if axis == 'x' else current_x
+        circle_y = candidate if axis == 'y' else current_y
+        if not _circle_rect_collision(circle_x, circle_y, PLAYER_RADIUS, metrics):
+            continue
+
+        if delta > 0:
+            limit = metrics['left'] - PLAYER_RADIUS
+            if candidate <= limit + _COLLISION_EPSILON:
+                continue
+            if pushable:
+                desired = candidate - limit
+                move_dx, move_dy = _try_move_obstacle(
+                    entries,
+                    obstacle,
+                    desired if axis == 'x' else 0.0,
+                    desired if axis == 'y' else 0.0,
+                )
+                if (axis == 'x' and abs(move_dx) > _COLLISION_EPSILON) or (
+                    axis == 'y' and abs(move_dy) > _COLLISION_EPSILON
+                ):
+                    moved_obstacles = True
+                metrics = _obstacle_metrics(obstacle)
+                limit = metrics['left'] - PLAYER_RADIUS
+            candidate = min(candidate, limit)
+        else:
+            limit = metrics['right'] + PLAYER_RADIUS
+            if candidate >= limit - _COLLISION_EPSILON:
+                continue
+            if pushable:
+                desired = candidate - limit
+                move_dx, move_dy = _try_move_obstacle(
+                    entries,
+                    obstacle,
+                    desired if axis == 'x' else 0.0,
+                    desired if axis == 'y' else 0.0,
+                )
+                if (axis == 'x' and abs(move_dx) > _COLLISION_EPSILON) or (
+                    axis == 'y' and abs(move_dy) > _COLLISION_EPSILON
+                ):
+                    moved_obstacles = True
+                metrics = _obstacle_metrics(obstacle)
+                limit = metrics['right'] + PLAYER_RADIUS
+            candidate = max(candidate, limit)
+
+    if axis == 'x':
+        candidate = _clamp(candidate, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS)
+    else:
+        candidate = _clamp(candidate, PLAYER_RADIUS, PLAYFIELD_HEIGHT - PLAYER_RADIUS)
+
+    return candidate, moved_obstacles
+
+
+def apply_player_move(state: RoomState, player: Player, target_x: float, target_y: float) -> tuple:
+    if player is None:
+        return False, False
+
+    if not (isinstance(target_x, (int, float)) and isinstance(target_y, (int, float))):
+        return False, False
+
+    cfg = state.config or {}
+    entries = _gather_obstacle_entries(cfg)
+
+    start_x = player.x
+    start_y = player.y
+
+    clamped_x = _clamp(target_x, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS)
+    clamped_y = _clamp(target_y, PLAYER_RADIUS, PLAYFIELD_HEIGHT - PLAYER_RADIUS)
+
+    obstacles_moved = False
+
+    if entries:
+        resolved_x, moved_x = _resolve_axis(entries, start_x, start_y, clamped_x, 'x')
+        obstacles_moved = obstacles_moved or moved_x
+        resolved_y, moved_y = _resolve_axis(entries, resolved_x, start_y, clamped_y, 'y')
+        obstacles_moved = obstacles_moved or moved_y
+    else:
+        resolved_x = clamped_x
+        resolved_y = clamped_y
+
+    moved = abs(resolved_x - start_x) > _COLLISION_EPSILON or abs(resolved_y - start_y) > _COLLISION_EPSILON
+
+    if moved:
+        player.x = resolved_x
+        player.y = resolved_y
+        if player.currentItem:
+            player.currentItem.x = resolved_x
+            player.currentItem.y = resolved_y
+
+    return moved, obstacles_moved
 
 
 def initialize_room(room: str, config: dict = None):
@@ -737,17 +938,16 @@ def on_move(data):
     except (TypeError, ValueError):
         return
 
-    p.x, p.y = nx, ny
-    if p.currentItem:
-        p.currentItem.x, p.currentItem.y = nx, ny
+    moved, obstacles_moved = apply_player_move(rs, p, nx, ny)
     if rs.clientManaged:
         socketio.emit('client_move', {
             'playerId': pid,
             'room': room,
-            'x': nx,
-            'y': ny,
+            'x': p.x,
+            'y': p.y,
         }, room=room)
-    mark_dirty(room)
+    if moved or obstacles_moved:
+        mark_dirty(room)
 
 @socketio.on('interact')
 def on_interact(data):
@@ -776,11 +976,9 @@ def on_interact(data):
             nx = None
             ny = None
         if nx is not None and ny is not None:
-            x, y = nx, ny
-            p.x, p.y = nx, ny
-            if p.currentItem:
-                p.currentItem.x, p.currentItem.y = nx, ny
-            position_updated = True
+            moved, obstacles_moved = apply_player_move(rs, p, nx, ny)
+            x, y = p.x, p.y
+            position_updated = moved or obstacles_moved
 
     # アイテム取得 or 生成
     if p.currentItem is None:
