@@ -542,13 +542,19 @@ export class LocalSimulator {
       const elapsed = now - info.startedAt;
       const duration = Math.max(Number(task.duration) || 0.1, 0.1);
       const progress = Math.max(0, Math.min(elapsed / duration, 1));
+      const prevProgress = Number(task.progress);
+      const prevRemaining = Number(task.remaining);
+      const remaining = info.resultItemId ? 0 : Math.max(duration - elapsed, 0);
+      let changed = false;
+      if (!Number.isFinite(prevProgress) || Math.abs(prevProgress - progress) > 1e-3) {
+        changed = true;
+      }
+      if (!Number.isFinite(prevRemaining) || Math.abs(prevRemaining - remaining) > 1e-3) {
+        changed = true;
+      }
       task.progress = progress;
       task.elapsed = elapsed;
-      if (!info.resultItemId) {
-        task.remaining = Math.max(duration - elapsed, 0);
-      } else {
-        task.remaining = 0;
-      }
+      task.remaining = remaining;
 
       if (!info.resultItemId && progress >= 1) {
         const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
@@ -580,7 +586,11 @@ export class LocalSimulator {
           this.dirty = true;
           continue;
         }
-        const burnLimit = duration * 4;
+        const burnable = (
+          task.result_type === 'ingredient_beef_patty' &&
+          (task.result_state == null || task.result_state === 'cooked')
+        );
+        const burnLimit = burnable ? duration * 4 : 0;
         if (burnLimit > 0 && elapsed >= burnLimit) {
           this.state.items = this.state.items.filter((itm) => itm.id !== info.resultItemId);
           task.displayText = '消し炭になってしまった！';
@@ -601,6 +611,10 @@ export class LocalSimulator {
           this.cookingTasks.delete(taskId);
           this.dirty = true;
         }
+      }
+
+      if (changed) {
+        this.dirty = true;
       }
     }
   }

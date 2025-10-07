@@ -593,7 +593,13 @@ def run_cooking_task(room: str, zone: dict, task: dict):
         return
 
     duration = max(float(task.get('duration', 1.0) or 0.0), 0.1)
-    burn_threshold = duration * 4.0
+    result_type = task.get('result_type')
+    result_state = task.get('result_state')
+    burn_enabled = (
+        result_type == 'ingredient_beef_patty'
+        and (result_state is None or result_state == 'cooked')
+    )
+    burn_threshold = duration * 4.0 if burn_enabled else None
     start = time.time()
     task['startedAt'] = start
     task['duration'] = duration
@@ -652,7 +658,7 @@ def run_cooking_task(room: str, zone: dict, task: dict):
                     mark_dirty(room)
                 return
 
-            if burn_threshold > 0.0 and elapsed >= burn_threshold:
+            if burn_threshold and burn_threshold > 0.0 and elapsed >= burn_threshold:
                 for idx, itm in enumerate(rs.items):
                     if itm.id == result_item_id:
                         rs.items.pop(idx)
