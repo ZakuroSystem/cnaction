@@ -647,14 +647,45 @@ def _clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(max_value, value))
 
 
+def _zone_metrics(zone: dict) -> dict:
+    width = max(16.0, _coerce_float(zone.get('width'), 150.0))
+    height = max(16.0, _coerce_float(zone.get('height'), 150.0))
+    half_w = width / 2.0
+    half_h = height / 2.0
+    x = _coerce_float(zone.get('x'), 0.0)
+    y = _coerce_float(zone.get('y'), 0.0)
+    return {
+        'x': x,
+        'y': y,
+        'half_w': half_w,
+        'half_h': half_h,
+        'left': x - half_w,
+        'right': x + half_w,
+        'top': y - half_h,
+        'bottom': y + half_h,
+    }
+
+
+def _attached_zones(cfg: dict, obstacle: dict) -> list:
+    zones = []
+    metrics = _obstacle_metrics(obstacle)
+    for zone in cfg.get('actionZones') or []:
+        if not isinstance(zone, dict):
+            continue
+        zone_metrics = _zone_metrics(zone)
+        if _rectangles_overlap(zone_metrics, metrics):
+            zones.append(zone)
+    return zones
+
+
 def _gather_obstacle_entries(cfg: dict) -> list:
     entries = []
     for obstacle in cfg.get('staticObstacles') or []:
         if isinstance(obstacle, dict):
-            entries.append({'obstacle': obstacle, 'pushable': False})
+            entries.append({'obstacle': obstacle, 'pushable': False, 'zones': _attached_zones(cfg, obstacle)})
     for obstacle in cfg.get('movingObstacles') or []:
         if isinstance(obstacle, dict):
-            entries.append({'obstacle': obstacle, 'pushable': True})
+            entries.append({'obstacle': obstacle, 'pushable': True, 'zones': _attached_zones(cfg, obstacle)})
     return entries
 
 
@@ -694,7 +725,8 @@ def _circle_rect_collision(cx: float, cy: float, radius: float, rect: dict) -> b
     return dx * dx + dy * dy <= radius * radius
 
 
-def _try_move_obstacle(entries: list, obstacle: dict, dx: float, dy: float) -> tuple:
+def _try_move_obstacle(entries: list, entry: dict, dx: float, dy: float) -> tuple:
+    obstacle = entry['obstacle']
     if abs(dx) < _COLLISION_EPSILON and abs(dy) < _COLLISION_EPSILON:
         return 0.0, 0.0
     metrics = _obstacle_metrics(obstacle)
@@ -708,8 +740,8 @@ def _try_move_obstacle(entries: list, obstacle: dict, dx: float, dy: float) -> t
         'top': target_y - metrics['half_h'],
         'bottom': target_y + metrics['half_h'],
     }
-    for entry in entries:
-        other = entry['obstacle']
+    for other_entry in entries:
+        other = other_entry['obstacle']
         if other is obstacle:
             continue
         other_metrics = _obstacle_metrics(other)
@@ -717,6 +749,12 @@ def _try_move_obstacle(entries: list, obstacle: dict, dx: float, dy: float) -> t
             return 0.0, 0.0
     obstacle['x'] = target_x
     obstacle['y'] = target_y
+    if abs(actual_dx) > _COLLISION_EPSILON or abs(actual_dy) > _COLLISION_EPSILON:
+        for zone in entry.get('zones') or []:
+            prev_x = _coerce_float(zone.get('x'), metrics['x'])
+            prev_y = _coerce_float(zone.get('y'), metrics['y'])
+            zone['x'] = prev_x + actual_dx
+            zone['y'] = prev_y + actual_dy
     return actual_dx, actual_dy
 
 
@@ -729,8 +767,8 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
         return start, False
 
     for entry in entries:
-        obstacle = entry['obstacle']
         pushable = entry['pushable']
+        obstacle = entry['obstacle']
         metrics = _obstacle_metrics(obstacle)
         circle_x = candidate if axis == 'x' else current_x
         circle_y = candidate if axis == 'y' else current_y
@@ -745,7 +783,7 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
                 desired = candidate - limit
                 move_dx, move_dy = _try_move_obstacle(
                     entries,
-                    obstacle,
+                    entry,
                     desired if axis == 'x' else 0.0,
                     desired if axis == 'y' else 0.0,
                 )
@@ -764,7 +802,7 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
                 desired = candidate - limit
                 move_dx, move_dy = _try_move_obstacle(
                     entries,
-                    obstacle,
+                    entry,
                     desired if axis == 'x' else 0.0,
                     desired if axis == 'y' else 0.0,
                 )

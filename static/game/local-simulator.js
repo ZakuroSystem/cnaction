@@ -428,18 +428,51 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function zoneMetrics(zone) {
+  const width = Math.max(16, Number(zone?.width) || 150);
+  const height = Math.max(16, Number(zone?.height) || 150);
+  const halfW = width / 2;
+  const halfH = height / 2;
+  const x = Number(zone?.x) || 0;
+  const y = Number(zone?.y) || 0;
+  return {
+    x,
+    y,
+    halfW,
+    halfH,
+    left: x - halfW,
+    right: x + halfW,
+    top: y - halfH,
+    bottom: y + halfH,
+  };
+}
+
+function zonesForObstacle(config, obstacle) {
+  const zones = [];
+  const metrics = obstacleMetrics(obstacle);
+  const actionZones = Array.isArray(config?.actionZones) ? config.actionZones : [];
+  for (const zone of actionZones) {
+    if (!zone || typeof zone !== 'object') continue;
+    const zoneBox = zoneMetrics(zone);
+    if (rectanglesOverlap(zoneBox, metrics)) {
+      zones.push(zone);
+    }
+  }
+  return zones;
+}
+
 function obstacleEntries(config) {
   const entries = [];
   const staticList = Array.isArray(config?.staticObstacles) ? config.staticObstacles : [];
   staticList.forEach((obstacle) => {
     if (obstacle && typeof obstacle === 'object') {
-      entries.push({ obstacle, pushable: false });
+      entries.push({ obstacle, pushable: false, zones: zonesForObstacle(config, obstacle) });
     }
   });
   const movingList = Array.isArray(config?.movingObstacles) ? config.movingObstacles : [];
   movingList.forEach((obstacle) => {
     if (obstacle && typeof obstacle === 'object') {
-      entries.push({ obstacle, pushable: true });
+      entries.push({ obstacle, pushable: true, zones: zonesForObstacle(config, obstacle) });
     }
   });
   return entries;
@@ -481,7 +514,8 @@ function circleRectCollision(cx, cy, radius, rect) {
   return dx * dx + dy * dy <= radius * radius;
 }
 
-function tryMoveObstacle(entries, obstacle, dx, dy) {
+function tryMoveObstacle(entries, entry, dx, dy) {
+  const obstacle = entry.obstacle;
   if (Math.abs(dx) < COLLISION_EPSILON && Math.abs(dy) < COLLISION_EPSILON) {
     return { dx: 0, dy: 0 };
   }
@@ -496,8 +530,8 @@ function tryMoveObstacle(entries, obstacle, dx, dy) {
     top: newY - metrics.halfH,
     bottom: newY + metrics.halfH,
   };
-  for (const entry of entries) {
-    const other = entry.obstacle;
+  for (const otherEntry of entries) {
+    const other = otherEntry.obstacle;
     if (other === obstacle) continue;
     const otherMetrics = obstacleMetrics(other);
     if (rectanglesOverlap(newRect, otherMetrics)) {
@@ -506,6 +540,14 @@ function tryMoveObstacle(entries, obstacle, dx, dy) {
   }
   obstacle.x = newX;
   obstacle.y = newY;
+  if (Math.abs(actualDx) > COLLISION_EPSILON || Math.abs(actualDy) > COLLISION_EPSILON) {
+    for (const zone of entry.zones || []) {
+      const prevX = Number(zone?.x) || metrics.x;
+      const prevY = Number(zone?.y) || metrics.y;
+      zone.x = prevX + actualDx;
+      zone.y = prevY + actualDy;
+    }
+  }
   return { dx: actualDx, dy: actualDy };
 }
 
@@ -536,7 +578,7 @@ function resolveAxis(entries, currentX, currentY, targetValue, axis) {
         const desired = candidate - limit;
         const movement = tryMoveObstacle(
           entries,
-          obstacle,
+          entry,
           axis === 'x' ? desired : 0,
           axis === 'y' ? desired : 0,
         );
@@ -559,7 +601,7 @@ function resolveAxis(entries, currentX, currentY, targetValue, axis) {
         const desired = candidate - limit;
         const movement = tryMoveObstacle(
           entries,
-          obstacle,
+          entry,
           axis === 'x' ? desired : 0,
           axis === 'y' ? desired : 0,
         );
