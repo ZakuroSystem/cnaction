@@ -37,15 +37,23 @@
     <p class="start-overlay__link"><a href="/editor">設定モードへ</a></p>
   </div>
 
-  <div id="game-container" style="display: none"></div>
   <div id="ui" style="display: none">
-    <div id="orders-panel">
-      <h3>オーダー</h3>
-      <div id="order-list" class="order-list"></div>
+    <div class="play-layout">
+      <aside class="play-layout__sidebar">
+        <div id="orders-panel">
+          <h3>オーダー</h3>
+          <div id="order-list" class="order-list"></div>
+        </div>
+        <div class="status-panel">
+          <div id="timer" class="status-panel__item">タイマー: 60</div>
+          <div id="score" class="status-panel__item">スコア: 0</div>
+          <div id="inventory" class="status-panel__item">持ち物: なし</div>
+        </div>
+      </aside>
+      <div class="play-layout__stage">
+        <div id="game-container" style="display: none"></div>
+      </div>
     </div>
-    <div id="timer">タイマー: 60</div>
-    <div id="score">スコア: 0</div>
-    <div id="inventory">持ち物: なし</div>
     <div
       id="game-over-message"
       class="game-over hidden"
