@@ -1363,10 +1363,11 @@ export class LocalSimulator {
     const recipes = Array.isArray(cfg.combinationRecipes) && cfg.combinationRecipes.length
       ? cfg.combinationRecipes
       : COMBINATION_RECIPES;
+    const overlapTolerance = PLAYER_RADIUS + 8;
     for (let i = 0; i < this.state.items.length; i += 1) {
       const other = this.state.items[i];
       if (other === item) continue;
-      if (distanceSquared(other.x, other.y, x, y) > 60 * 60) {
+      if (Math.abs(other.x - x) > overlapTolerance || Math.abs(other.y - y) > overlapTolerance) {
         continue;
       }
       let recipe = findCombinationFromIndex(

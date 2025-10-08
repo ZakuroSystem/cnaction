@@ -1236,13 +1236,13 @@ def on_interact(data):
             return
 
     # 組み合わせ
-    stack_radius_sq = 60 * 60
+    stack_tolerance = PLAYER_RADIUS + 8
     for other in rs.items:
         if other is itm:
             continue
         dx = other.x - x
         dy = other.y - y
-        if dx * dx + dy * dy > stack_radius_sq:
+        if abs(dx) > stack_tolerance or abs(dy) > stack_tolerance:
             continue
         recipe = find_combination_recipe_from_index(
             runtime.get('combination_index'),
