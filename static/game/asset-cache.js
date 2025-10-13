@@ -4,6 +4,17 @@ const INGREDIENT_FILE_OVERRIDES = {
   ingredient_tomato: 'TMT.png',
 };
 
+const STATE_TEXTURE_OVERRIDES = {
+  'ingredient_burger_buns:raw': 'burger_buns.png',
+  'ingredient_burger_buns:toasted': 'burger_buns.png',
+  'ingredient_beef_patty:raw': 'beef_patty.png',
+  'ingredient_beef_patty:cooked': 'grilled_beef_patty.png',
+  'ingredient_lettuce:raw': 'lettuce.png',
+  'ingredient_lettuce:chopped': 'lettuce_cut.png',
+  'ingredient_tomato:raw': 'TMT.png',
+  'ingredient_tomato:chopped': 'TMT_slice.png',
+};
+
 const STATIC_TEXTURE_OVERRIDES = {
   background: newItemPath('背景 コンクリート_ブラッシュアップ1.png'),
   action_default: newItemPath('まな板が乗っているカウンター.png'),
@@ -64,6 +75,10 @@ export class AssetCache {
       return key;
     }
 
+    if (STATE_TEXTURE_OVERRIDES[key]) {
+      return newItemPath(STATE_TEXTURE_OVERRIDES[key]);
+    }
+
     if (STATIC_TEXTURE_OVERRIDES[key]) {
       return STATIC_TEXTURE_OVERRIDES[key];
     }
@@ -74,6 +89,11 @@ export class AssetCache {
         return newItemPath(override);
       }
       return newItemPath(`${key.replace('ingredient_', '')}.png`);
+    }
+
+    if (key.includes(':')) {
+      const base = key.split(':', 1)[0];
+      return this.resolvePath(base);
     }
 
     if (key.startsWith('dish_')) {

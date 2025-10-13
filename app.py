@@ -567,6 +567,32 @@ def _remove_world_item(rs: RoomState, target) -> Optional[Item]:
     return item
 
 
+def _clear_cooking_task_for_item(rs: RoomState, item_id: Optional[int]) -> bool:
+    if not isinstance(item_id, int):
+        return False
+    zones = rs.config.get('actionZones') if isinstance(rs.config, dict) else None
+    if not zones:
+        return False
+    cleared = False
+    for zone in zones:
+        if not isinstance(zone, dict):
+            continue
+        cooking = zone.get('cooking')
+        if not cooking:
+            continue
+        result_id = cooking.get('result_item_id')
+        try:
+            result_id = int(result_id)
+        except (TypeError, ValueError):
+            result_id = None
+        if result_id is None or result_id != item_id:
+            continue
+        zone.pop('cooking', None)
+        zone['occupied'] = False
+        cleared = True
+    return cleared
+
+
 def _rebuild_item_lookup(rs: RoomState):
     lookup = _ensure_item_lookup(rs)
     lookup.clear()
@@ -1024,6 +1050,7 @@ def run_cooking_task(room: str, zone: dict, task: dict):
 
             result_item_id = cooked.id
             current['result_item_id'] = result_item_id
+            current['result_item_state'] = result_state
             current['finishedAt'] = now
             current['displayText'] = display
             zone['occupied'] = False
@@ -1165,8 +1192,12 @@ def on_interact(data):
             dx = itm.x - x
             dy = itm.y - y
             if dx * dx + dy * dy < pickup_radius_sq:
-                p.currentItem = itm
-                _remove_world_item(rs, itm)
+                removed = _remove_world_item(rs, itm)
+                if removed:
+                    p.currentItem = removed
+                    _clear_cooking_task_for_item(rs, removed.id)
+                else:
+                    p.currentItem = itm
                 mark_dirty(room)
                 return
         food_choices = ingredient_types()
@@ -1253,12 +1284,19 @@ def on_interact(data):
             display_text = display_override or zone.get('display') or (
                 '切っている…' if action_needed == 'cut' else '焼いている…'
             )
+            source_type = getattr(itm, 'type', None)
+            source_state = getattr(itm, 'state', None)
+            if source_type and source_state:
+                texture_key = f"{source_type}:{source_state}"
+            else:
+                texture_key = source_type
             task = {
                 'id': cooking_id,
                 'progress': 0.0,
                 'duration': duration_val,
-                'texture': getattr(itm, 'type', None),
-                'itemType': getattr(itm, 'type', None),
+                'texture': texture_key,
+                'itemType': source_type,
+                'item_state': source_state,
                 'displayText': display_text,
                 'result_type': result_type,
                 'result_state': result_state,

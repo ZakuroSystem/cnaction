@@ -886,6 +886,33 @@ export class LocalSimulator {
     return existing;
   }
 
+  clearCookingTaskForItem(itemId) {
+    if (!this.state?.config?.actionZones || !Number.isFinite(itemId)) {
+      return false;
+    }
+    const zones = this.state.config.actionZones;
+    let cleared = false;
+    for (let i = 0; i < zones.length; i += 1) {
+      const zone = zones[i];
+      if (!zone || !zone.cooking) continue;
+      const task = zone.cooking;
+      const resultId = Number(task.result_item_id ?? task.resultItemId);
+      if (!Number.isFinite(resultId) || resultId !== itemId) {
+        continue;
+      }
+      delete zone.cooking;
+      zone.occupied = false;
+      if (task.id && this.cookingTasks.has(task.id)) {
+        this.cookingTasks.delete(task.id);
+      }
+      cleared = true;
+    }
+    if (cleared) {
+      this.dirty = true;
+    }
+    return cleared;
+  }
+
   clearWorldItems() {
     if (!this.state) return;
     this.state.items = [];
@@ -1142,6 +1169,7 @@ export class LocalSimulator {
         }
         task.displayText = display;
         task.result_item_id = worldItem.id;
+        task.result_item_state = task.result_state;
         task.finishedAt = now;
         info.resultItemId = worldItem.id;
         info.spawnedAt = now;
@@ -1270,6 +1298,7 @@ export class LocalSimulator {
       return false;
     }
     player.currentItem = { ...removed };
+    this.clearCookingTaskForItem(removed.id);
     return true;
   }
 
@@ -1372,12 +1401,14 @@ export class LocalSimulator {
       const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
         : `cook-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const textureKey = item.type && item.state ? `${item.type}:${item.state}` : item.type;
       const task = {
         id,
         progress: 0,
         duration: Math.max(actionInfo.duration, 0.1),
-        texture: item.type,
+        texture: textureKey,
         itemType: item.type,
+        item_state: item.state,
         displayText:
           actionInfo.display ||
           zone.display ||

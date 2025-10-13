@@ -257,7 +257,8 @@ export class Renderer {
   renderItems(items) {
     items.forEach((item) => {
       const size = snapSize(SPRITE_BASE_SIZE);
-      const img = this.assets.get(item.type);
+      const textureKey = this.textureKeyForItem(item);
+      const img = this.assets.get(textureKey);
       if (img && img.complete && img.naturalWidth > 0) {
         const left = snap(item.x - size / 2);
         const top = snap(item.y - size / 2);
@@ -288,7 +289,8 @@ export class Renderer {
       }
 
       if (player.currentItem) {
-        const itemImg = this.assets.get(player.currentItem.type);
+        const textureKey = this.textureKeyForItem(player.currentItem);
+        const itemImg = this.assets.get(textureKey);
         const itemSize = snapSize(HELD_ITEM_SIZE);
         if (itemImg && itemImg.complete && itemImg.naturalWidth > 0) {
           const heldLeft = snap(px - itemSize / 2);
@@ -316,7 +318,10 @@ export class Renderer {
     zones.forEach((zone) => {
       if (!zone.cooking) return;
       const data = zone.cooking;
-      const textureKey = data.texture || data.itemType || data.result_type;
+      const textureKey =
+        data.texture ||
+        (data.itemType && data.item_state ? `${data.itemType}:${data.item_state}` : data.itemType) ||
+        (data.result_type && data.result_state ? `${data.result_type}:${data.result_state}` : data.result_type);
       if (textureKey) {
         const img = this.assets.get(textureKey);
         const baseSize = Math.min(SPRITE_BASE_SIZE, zone.width * 0.8, zone.height * 0.8);
@@ -353,6 +358,17 @@ export class Renderer {
       }
       this.ctx.restore();
     });
+  }
+
+  textureKeyForItem(item) {
+    if (!item) return null;
+    if (item.texture) return item.texture;
+    const type = item.type;
+    const state = item.state;
+    if (type && state) {
+      return `${type}:${state}`;
+    }
+    return type;
   }
 
   drawPlaceholderCircle(x, y, radius, color) {
