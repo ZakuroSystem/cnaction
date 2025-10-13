@@ -567,8 +567,13 @@ def _remove_world_item(rs: RoomState, target) -> Optional[Item]:
     return item
 
 
-def _clear_cooking_task_for_item(rs: RoomState, item_id: Optional[int]) -> bool:
-    if not isinstance(item_id, int):
+def _clear_cooking_task_for_item(
+    rs: RoomState,
+    item_id: Optional[int],
+    item_type: Optional[str] = None,
+    item_state: Optional[str] = None,
+) -> bool:
+    if not isinstance(item_id, int) and not item_type:
         return False
     zones = rs.config.get('actionZones') if isinstance(rs.config, dict) else None
     if not zones:
@@ -585,7 +590,19 @@ def _clear_cooking_task_for_item(rs: RoomState, item_id: Optional[int]) -> bool:
             result_id = int(result_id)
         except (TypeError, ValueError):
             result_id = None
-        if result_id is None or result_id != item_id:
+        matches_item = False
+        if isinstance(item_id, int) and result_id == item_id:
+            matches_item = True
+        elif result_id is None:
+            result_type = cooking.get('result_type')
+            result_state = cooking.get('result_state')
+            if item_type and result_type == item_type:
+                if result_state is None or result_state == item_state:
+                    progress = cooking.get('progress')
+                    finished_at = cooking.get('finishedAt')
+                    if progress is None or progress >= 1.0 or finished_at:
+                        matches_item = True
+        if not matches_item:
             continue
         zone.pop('cooking', None)
         zone['occupied'] = False
@@ -1195,7 +1212,12 @@ def on_interact(data):
                 removed = _remove_world_item(rs, itm)
                 if removed:
                     p.currentItem = removed
-                    _clear_cooking_task_for_item(rs, removed.id)
+                    _clear_cooking_task_for_item(
+                        rs,
+                        removed.id,
+                        getattr(removed, 'type', None),
+                        getattr(removed, 'state', None),
+                    )
                 else:
                     p.currentItem = itm
                 mark_dirty(room)
@@ -1311,44 +1333,6 @@ def on_interact(data):
             mark_dirty(room)
             return
 
-    # 組み合わせ
-    stack_tolerance = PLAYER_RADIUS + 8
-    for other in rs.items:
-        if other is itm:
-            continue
-        dx = other.x - x
-        dy = other.y - y
-        if abs(dx) > stack_tolerance or abs(dy) > stack_tolerance:
-            continue
-        recipe = find_combination_recipe_from_index(
-            runtime.get('combination_index'),
-            itm.type,
-            itm.state,
-            other.type,
-            other.state,
-        )
-        if not recipe:
-            recipe = find_combination_recipe(
-                cfg.get('combinationRecipes'),
-                itm.type,
-                itm.state,
-                other.type,
-                other.state,
-            )
-        if not recipe:
-            continue
-        result = recipe.get('result') or {}
-        result_type = result.get('type')
-        if not result_type:
-            continue
-        result_state = result.get('state') or default_item_state(result_type)
-        other.type = result_type
-        other.state = result_state
-        other.display = format_item_display(result_type, result_state)
-        p.currentItem = None
-        mark_dirty(room)
-        return
-
     # 配膳
     delivery_zone = cfg.get('deliveryZone')
     if delivery_zone and in_zone(x, y, delivery_zone):
@@ -1381,6 +1365,44 @@ def on_interact(data):
     # 置く or 転送
     itm.x, itm.y = x, y
     itm.display = format_item_display(itm.type, itm.state)
+
+    stack_tolerance = PLAYER_RADIUS + 8
+    for other in rs.items:
+        if other is itm:
+            continue
+        dx = other.x - itm.x
+        dy = other.y - itm.y
+        if abs(dx) > stack_tolerance or abs(dy) > stack_tolerance:
+            continue
+        recipe = find_combination_recipe_from_index(
+            runtime.get('combination_index'),
+            itm.type,
+            itm.state,
+            other.type,
+            other.state,
+        )
+        if not recipe:
+            recipe = find_combination_recipe(
+                cfg.get('combinationRecipes'),
+                itm.type,
+                itm.state,
+                other.type,
+                other.state,
+            )
+        if not recipe:
+            continue
+        result = recipe.get('result') or {}
+        result_type = result.get('type')
+        if not result_type:
+            continue
+        result_state = result.get('state') or default_item_state(result_type)
+        other.type = result_type
+        other.state = result_state
+        other.display = format_item_display(result_type, result_state)
+        p.currentItem = None
+        mark_dirty(room)
+        return
+
     for tr in cfg.get('transferObjects', []):
         src = tr.get('sourceZone')
         dest = tr.get('destination')

@@ -886,8 +886,8 @@ export class LocalSimulator {
     return existing;
   }
 
-  clearCookingTaskForItem(itemId) {
-    if (!this.state?.config?.actionZones || !Number.isFinite(itemId)) {
+  clearCookingTaskForItem(itemId, itemType = null, itemState = null) {
+    if (!this.state?.config?.actionZones) {
       return false;
     }
     const zones = this.state.config.actionZones;
@@ -897,7 +897,20 @@ export class LocalSimulator {
       if (!zone || !zone.cooking) continue;
       const task = zone.cooking;
       const resultId = Number(task.result_item_id ?? task.resultItemId);
-      if (!Number.isFinite(resultId) || resultId !== itemId) {
+      let matches = false;
+      if (Number.isFinite(resultId) && Number.isFinite(itemId) && resultId === itemId) {
+        matches = true;
+      } else if (!Number.isFinite(resultId) && itemType && task.result_type === itemType) {
+        const taskState = task.result_state;
+        if (taskState == null || taskState === itemState) {
+          const finishedAt = task.finishedAt;
+          const progress = Number(task.progress);
+          if (!Number.isFinite(progress) || progress >= 1 || finishedAt) {
+            matches = true;
+          }
+        }
+      }
+      if (!matches) {
         continue;
       }
       delete zone.cooking;
@@ -1340,10 +1353,6 @@ export class LocalSimulator {
       this.dirty = true;
       return true;
     }
-    if (this.tryCombine(player, posX, posY)) {
-      this.dirty = true;
-      return true;
-    }
     if (this.tryDeliver(player, posX, posY)) {
       this.dirty = true;
       return true;
@@ -1380,7 +1389,11 @@ export class LocalSimulator {
       return false;
     }
     player.currentItem = { ...removed };
-    this.clearCookingTaskForItem(removed.id);
+    this.clearCookingTaskForItem(
+      removed.id,
+      removed.type,
+      removed.state,
+    );
     return true;
   }
 
@@ -1511,48 +1524,6 @@ export class LocalSimulator {
     return false;
   }
 
-  tryCombine(player, x, y) {
-    const item = player.currentItem;
-    if (!item) return false;
-    const cfg = this.state.config || {};
-    const recipes = Array.isArray(cfg.combinationRecipes) && cfg.combinationRecipes.length
-      ? cfg.combinationRecipes
-      : COMBINATION_RECIPES;
-    const overlapTolerance = PLAYER_RADIUS + 8;
-    for (let i = 0; i < this.state.items.length; i += 1) {
-      const other = this.state.items[i];
-      if (other === item) continue;
-      if (Math.abs(other.x - x) > overlapTolerance || Math.abs(other.y - y) > overlapTolerance) {
-        continue;
-      }
-      let recipe = findCombinationFromIndex(
-        this.runtime?.combinationIndex,
-        item.type,
-        item.state,
-        other.type,
-        other.state,
-      );
-      if (!recipe) {
-        recipe = findCombinationRecipe(recipes, item.type, item.state, other.type, other.state);
-      }
-      if (!recipe) {
-        continue;
-      }
-      const result = recipe.result || {};
-      const resultType = result.type;
-      if (!resultType) {
-        continue;
-      }
-      const resultState = result.state || defaultItemState(resultType);
-      other.type = resultType;
-      other.state = resultState;
-      other.display = formatItemDisplay(resultType, resultState);
-      player.currentItem = null;
-      return true;
-    }
-    return false;
-  }
-
   tryDeliver(player, x, y) {
     const item = player.currentItem;
     if (!item) return false;
@@ -1590,6 +1561,41 @@ export class LocalSimulator {
     item.x = x;
     item.y = y;
     item.display = formatItemDisplay(item.type, item.state);
+    const recipes = Array.isArray(this.state?.config?.combinationRecipes)
+      && this.state.config.combinationRecipes.length
+      ? this.state.config.combinationRecipes
+      : COMBINATION_RECIPES;
+    const overlapTolerance = PLAYER_RADIUS + 8;
+    for (const other of this.state.items) {
+      if (!other) continue;
+      if (Math.abs(other.x - item.x) > overlapTolerance || Math.abs(other.y - item.y) > overlapTolerance) {
+        continue;
+      }
+      let recipe = findCombinationFromIndex(
+        this.runtime?.combinationIndex,
+        item.type,
+        item.state,
+        other.type,
+        other.state,
+      );
+      if (!recipe) {
+        recipe = findCombinationRecipe(recipes, item.type, item.state, other.type, other.state);
+      }
+      if (!recipe) {
+        continue;
+      }
+      const result = recipe.result || {};
+      const resultType = result.type;
+      if (!resultType) {
+        continue;
+      }
+      const resultState = result.state || defaultItemState(resultType);
+      other.type = resultType;
+      other.state = resultState;
+      other.display = formatItemDisplay(resultType, resultState);
+      player.currentItem = null;
+      return;
+    }
     const transfers = this.state.config?.transferObjects || [];
     for (const transfer of transfers) {
       const src = transfer.sourceZone;
