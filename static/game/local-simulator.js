@@ -1125,10 +1125,92 @@ export class LocalSimulator {
   }
 
   updateCookingTasks() {
-    if (!this.state?.config?.actionZones) return;
+    const zones = this.state?.config?.actionZones;
+    if (!Array.isArray(zones) || !zones.length) return;
+
+    const seedTime = nowSeconds();
+    let normalised = false;
+    for (let i = 0; i < zones.length; i += 1) {
+      const zone = zones[i];
+      if (!zone || !zone.cooking) continue;
+      const task = zone.cooking;
+      if (!task.id) {
+        task.id = `task-${i}`;
+        normalised = true;
+      }
+      if (!Number.isFinite(task.startedAt)) {
+        task.startedAt = seedTime;
+        normalised = true;
+      }
+      if (!Number.isFinite(task.progress)) {
+        task.progress = 0;
+        normalised = true;
+      }
+      if (!Number.isFinite(task.elapsed)) {
+        task.elapsed = 0;
+        normalised = true;
+      }
+      const duration = Math.max(Number(task.duration) || 0.1, 0.1);
+      if (!Number.isFinite(task.remaining)) {
+        task.remaining = duration;
+        normalised = true;
+      }
+
+      const id = task.id;
+      const startedAt = Number(task.startedAt) || seedTime;
+      const entry = this.cookingTasks.get(id);
+      const rawResultId = Number(task.result_item_id ?? task.resultItemId);
+      if (!entry) {
+        const info = { zoneIndex: i, task, startedAt };
+        if (Number.isFinite(rawResultId)) {
+          info.resultItemId = rawResultId;
+          info.spawnedAt = Number(task.finishedAt) || startedAt;
+        }
+        if (task.burned) {
+          info.burned = true;
+          info.burnDisplayAt = Number(task.burnedAt) || seedTime;
+        }
+        this.cookingTasks.set(id, info);
+        normalised = true;
+      } else {
+        entry.zoneIndex = i;
+        entry.task = task;
+        if (!Number.isFinite(entry.startedAt) || Math.abs(entry.startedAt - startedAt) > 1e-3) {
+          entry.startedAt = startedAt;
+          normalised = true;
+        }
+        if (task.burned && !entry.burned) {
+          entry.burned = true;
+          entry.burnDisplayAt = Number(task.burnedAt) || seedTime;
+          normalised = true;
+        }
+        if (Number.isFinite(rawResultId)) {
+          if (entry.resultItemId !== rawResultId) {
+            entry.resultItemId = rawResultId;
+            normalised = true;
+          }
+          const spawnedAt = Number(task.finishedAt);
+          if (Number.isFinite(spawnedAt)) {
+            entry.spawnedAt = spawnedAt;
+            normalised = true;
+          } else if (!entry.spawnedAt) {
+            entry.spawnedAt = entry.startedAt;
+            normalised = true;
+          }
+        } else if (!Number.isFinite(rawResultId) && entry.resultItemId) {
+          delete entry.resultItemId;
+          delete entry.spawnedAt;
+          normalised = true;
+        }
+      }
+    }
+
+    if (normalised) {
+      this.dirty = true;
+    }
+
     const now = nowSeconds();
     for (const [taskId, info] of Array.from(this.cookingTasks.entries())) {
-      const zones = this.state.config.actionZones;
       const zone = zones[info.zoneIndex];
       if (!zone || !zone.cooking || zone.cooking.id !== taskId) {
         this.cookingTasks.delete(taskId);

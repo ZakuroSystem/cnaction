@@ -41,22 +41,23 @@ body {
 }
 
 .play-layout {
-  display: flex;
-  flex-wrap: nowrap;
-  justify-content: center;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: clamp(220px, 26vw, 320px) 1fr;
+  grid-template-areas: 'sidebar stage';
+  align-items: start;
   gap: 20px;
 }
 
 .play-layout__stage {
-  flex: 0 0 auto;
+  grid-area: stage;
   display: flex;
   justify-content: center;
 }
 
 .play-layout__sidebar {
-  flex: 0 0 clamp(220px, 24vw, 280px);
-  max-width: clamp(220px, 26vw, 300px);
+  grid-area: sidebar;
+  width: 100%;
+  max-width: clamp(220px, 26vw, 320px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -392,22 +393,12 @@ body {
   }
 
   .play-layout {
-    flex-direction: column;
-    align-items: stretch;
+    grid-template-columns: clamp(200px, 32vw, 280px) 1fr;
     gap: 16px;
   }
 
   .play-layout__sidebar {
-    max-width: none;
-  }
-
-  .play-layout__stage {
-    width: 100%;
-    justify-content: center;
-  }
-
-  #game-container {
-    margin: 0 auto;
+    max-width: clamp(200px, 32vw, 300px);
   }
 
   #orders-panel {
@@ -454,6 +445,27 @@ body {
 @media (max-width: 480px) {
   #start-overlay {
     padding: 20px 16px;
+  }
+}
+
+@media (max-width: 820px) {
+  .play-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'stage'
+      'sidebar';
+  }
+
+  .play-layout__sidebar {
+    max-width: 100%;
+  }
+
+  .play-layout__stage {
+    justify-content: center;
+  }
+
+  #game-container {
+    margin: 0 auto;
   }
 }
 
