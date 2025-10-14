@@ -684,6 +684,15 @@ def _ensure_cooking_registry(rs: RoomState) -> Dict[str, dict]:
         return registry
 
 
+def _settlement_is_open(settlement) -> bool:
+    if not isinstance(settlement, dict):
+        return False
+    status = settlement.get('status')
+    if status in ('captured', 'voided'):
+        return False
+    return True
+
+
 def _track_cooking_task(rs: RoomState, zone: dict, task: dict):
     with _room_lock(rs):
         registry = _ensure_cooking_registry(rs)
@@ -1267,7 +1276,13 @@ def _start_cooking_action(
     zones = cfg.get('actionZones', [])
     for zone in zones:
         with _room_lock(rs):
-            if zone.get('action') != action['action'] or zone.get('occupied'):
+            if zone.get('action') != action['action']:
+                continue
+            existing_task = zone.get('cooking') if isinstance(zone, dict) else None
+            if isinstance(existing_task, dict) and _settlement_is_open(existing_task.get('settlement')):
+                zone['occupied'] = True
+                continue
+            if zone.get('occupied'):
                 continue
             if not in_zone(x, y, zone):
                 continue
@@ -1575,6 +1590,32 @@ def run_cooking_task(room: str, zone: dict, task: dict):
         with _room_lock(rs):
             current = zone.get('cooking')
             if not current or current.get('id') != task['id']:
+                settlement = task.get('settlement')
+                if _settlement_is_open(settlement):
+                    source_payload = task.get('source_item') or {}
+                    restored = _item_from_snapshot(source_payload, rs.nextItemId)
+                    if isinstance(zone, dict):
+                        restored.x = zone.get('x', restored.x)
+                        restored.y = zone.get('y', restored.y)
+                    if not restored.display:
+                        restored.display = format_item_display(restored.type, restored.state)
+                    restored_item = _register_world_item(rs, restored, assign_new_id=False)
+                    now = time.time()
+                    if restored_item:
+                        settlement['status'] = 'voided'
+                        settlement['closedAt'] = now
+                        settlement['voidReason'] = 'cancelled'
+                        settlement.pop('lastError', None)
+                        settlement.pop('lastFailure', None)
+                        dirty = True
+                    else:
+                        settlement['lastError'] = 'uuid-conflict'
+                        settlement['lastFailure'] = now
+                        dirty = True
+                if isinstance(zone, dict):
+                    if zone.get('occupied'):
+                        dirty = True
+                    zone['occupied'] = False
                 _untrack_cooking_task(rs, task.get('id'))
                 should_exit = True
             else:
@@ -1628,7 +1669,6 @@ def run_cooking_task(room: str, zone: dict, task: dict):
                     cooked.display = display
                     registered = _register_world_item(rs, cooked, assign_new_id=True)
                     if not registered:
-                        zone['occupied'] = False
                         settlement['status'] = 'pending'
                         settlement['lastError'] = 'uuid-conflict'
                         settlement['lastFailure'] = now
@@ -1642,7 +1682,6 @@ def run_cooking_task(room: str, zone: dict, task: dict):
                             current['texture'] = f"{result_type}:{result_state}"
                         current['finishedAt'] = now
                         current['displayText'] = display
-                        zone['occupied'] = False
                         settlement['status'] = 'settled'
                         settlement['resultItemId'] = result_item_id
                         settlement['settledAt'] = now

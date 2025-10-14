@@ -937,6 +937,58 @@ export class LocalSimulator {
     }
   }
 
+  isSettlementOpen(settlement) {
+    if (!settlement || typeof settlement !== 'object') {
+      return false;
+    }
+    const status = settlement.status;
+    return status !== 'captured' && status !== 'voided';
+  }
+
+  restoreSourceItem(zone, task) {
+    if (!this.state || !task) {
+      return false;
+    }
+    const settlement = task.settlement || null;
+    if (!this.isSettlementOpen(settlement)) {
+      return false;
+    }
+    const source = task.source_item || null;
+    if (!source) {
+      return false;
+    }
+    const now = nowSeconds();
+    const fallbackId = Number.isFinite(source.id) ? source.id : this.state.nextItemId;
+    const restored = {
+      id: fallbackId,
+      type: source.type,
+      state: source.state ?? 'raw',
+      x: Number.isFinite(zone?.x) ? zone.x : Number(source.x) || 0,
+      y: Number.isFinite(zone?.y) ? zone.y : Number(source.y) || 0,
+      display: source.display || formatItemDisplay(source.type, source.state),
+      uuids: normalizeItemUuids(source.uuids),
+    };
+    const worldItem = this.registerWorldItem(restored, false);
+    if (worldItem) {
+      if (settlement) {
+        settlement.status = 'voided';
+        settlement.closedAt = now;
+        settlement.voidReason = 'cancelled';
+        delete settlement.lastError;
+        delete settlement.lastFailure;
+      }
+      this.dirty = true;
+      return true;
+    }
+    if (settlement) {
+      settlement.status = 'pending';
+      settlement.lastError = 'uuid-conflict';
+      settlement.lastFailure = now;
+      this.dirty = true;
+    }
+    return false;
+  }
+
   registerWorldItem(item, assignNewId = false) {
     if (!this.state) return null;
     const worldItem = {
@@ -1387,10 +1439,24 @@ export class LocalSimulator {
     for (const [taskId, info] of Array.from(this.cookingTasks.entries())) {
       const zone = zones[info.zoneIndex];
       if (!zone || !zone.cooking || zone.cooking.id !== taskId) {
+        if (info.task && this.isSettlementOpen(info.task.settlement)) {
+          this.restoreSourceItem(zone, info.task);
+        }
+        if (zone && (!zone.cooking || zone.cooking.id === taskId)) {
+          if (zone.occupied) {
+            this.dirty = true;
+          }
+          delete zone.cooking;
+          zone.occupied = false;
+        }
         this.cookingTasks.delete(taskId);
         continue;
       }
       const task = zone.cooking;
+      if (this.isSettlementOpen(task.settlement) && !zone.occupied) {
+        zone.occupied = true;
+        this.dirty = true;
+      }
       const elapsed = now - info.startedAt;
       const duration = Math.max(Number(task.duration) || 0.1, 0.1);
       const progress = Math.max(0, Math.min(elapsed / duration, 1));
@@ -1430,7 +1496,6 @@ export class LocalSimulator {
             uuids: normalizeItemUuids(source.uuids),
           };
           const worldItem = this.registerWorldItem(candidate, true);
-          zone.occupied = false;
           if (!worldItem) {
             if (settlement) {
               settlement.status = 'pending';
@@ -1465,6 +1530,7 @@ export class LocalSimulator {
         const stillPresent = this.ensureItemLookup().has(info.resultItemId);
         if (!stillPresent) {
           delete zone.cooking;
+          zone.occupied = false;
           this.cookingTasks.delete(taskId);
           if (settlement) {
             settlement.status = 'captured';
@@ -1503,6 +1569,7 @@ export class LocalSimulator {
         const shownFor = now - (info.burnDisplayAt || now);
         if (shownFor >= 1.5) {
           delete zone.cooking;
+          zone.occupied = false;
           this.cookingTasks.delete(taskId);
           if (settlement && settlement.closedAt == null) {
             settlement.closedAt = now;
@@ -1690,7 +1757,14 @@ export class LocalSimulator {
     const zones = this.state.config?.actionZones || [];
     for (let i = 0; i < zones.length; i += 1) {
       const zone = zones[i];
-      if (zone.action !== actionInfo.action || zone.occupied) {
+      if (zone.action !== actionInfo.action) {
+        continue;
+      }
+      if (zone.cooking && this.isSettlementOpen(zone.cooking.settlement)) {
+        zone.occupied = true;
+        continue;
+      }
+      if (zone.occupied) {
         continue;
       }
       if (!inZone(x, y, zone)) {
