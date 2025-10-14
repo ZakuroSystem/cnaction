@@ -546,11 +546,18 @@ def _register_world_item(rs: RoomState, item: Item, *, assign_new_id: bool = Fal
     return item
 
 
-def _remove_world_item(rs: RoomState, target) -> Optional[Item]:
+def _remove_world_item(
+    rs: RoomState,
+    target,
+    *,
+    clear_cooking: bool = False,
+) -> Optional[Item]:
     lookup = _ensure_item_lookup(rs)
     item: Optional[Item]
+    item_id: Optional[int]
     if isinstance(target, Item):
         item = target
+        item_id = getattr(item, 'id', None)
     else:
         try:
             item_id = int(target)
@@ -558,12 +565,21 @@ def _remove_world_item(rs: RoomState, target) -> Optional[Item]:
             item_id = None
         item = lookup.get(item_id) if item_id is not None else None
     if not item:
+        if clear_cooking and item_id is not None:
+            _clear_cooking_task_for_item(rs, item_id)
         return None
     lookup.pop(item.id, None)
     try:
         rs.items.remove(item)
     except ValueError:
         rs.items[:] = [itm for itm in rs.items if itm.id != item.id]
+    if clear_cooking:
+        _clear_cooking_task_for_item(
+            rs,
+            getattr(item, 'id', None),
+            getattr(item, 'type', None),
+            getattr(item, 'state', None),
+        )
     return item
 
 
@@ -1209,15 +1225,9 @@ def on_interact(data):
             dx = itm.x - x
             dy = itm.y - y
             if dx * dx + dy * dy < pickup_radius_sq:
-                removed = _remove_world_item(rs, itm)
+                removed = _remove_world_item(rs, itm, clear_cooking=True)
                 if removed:
                     p.currentItem = removed
-                    _clear_cooking_task_for_item(
-                        rs,
-                        removed.id,
-                        getattr(removed, 'type', None),
-                        getattr(removed, 'state', None),
-                    )
                 else:
                     p.currentItem = itm
                 mark_dirty(room)

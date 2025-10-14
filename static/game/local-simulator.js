@@ -867,21 +867,35 @@ export class LocalSimulator {
     return worldItem;
   }
 
-  removeWorldItem(target) {
+  removeWorldItem(target, options = {}) {
     if (!this.state) return null;
     const lookup = this.ensureItemLookup();
+    const { clearCooking = false } = options;
     const itemId = typeof target === 'number' ? target : target?.id;
     if (!Number.isFinite(itemId)) {
+      if (clearCooking) {
+        this.clearCookingTaskForItem(itemId);
+      }
       return null;
     }
     const existing = lookup.get(itemId);
     if (!existing) {
+      if (clearCooking) {
+        this.clearCookingTaskForItem(itemId);
+      }
       return null;
     }
     lookup.delete(itemId);
     const index = this.state.items.findIndex((itm) => itm.id === itemId);
     if (index !== -1) {
       this.state.items.splice(index, 1);
+    }
+    if (clearCooking) {
+      this.clearCookingTaskForItem(
+        existing.id,
+        existing.type,
+        existing.state,
+      );
     }
     return existing;
   }
@@ -1384,16 +1398,11 @@ export class LocalSimulator {
     if (!candidate) {
       return false;
     }
-    const removed = this.removeWorldItem(candidate);
+    const removed = this.removeWorldItem(candidate, { clearCooking: true });
     if (!removed) {
       return false;
     }
     player.currentItem = { ...removed };
-    this.clearCookingTaskForItem(
-      removed.id,
-      removed.type,
-      removed.state,
-    );
     return true;
   }
 
