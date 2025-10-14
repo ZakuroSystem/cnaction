@@ -1,3 +1,13 @@
+const newItemImage = (filename) => `/static/new_items/${encodeURIComponent(filename)}`;
+
+const INGREDIENT_ICON_OVERRIDES = {
+  tomato: newItemImage('TMT.png'),
+};
+
+const ITEM_ICON_OVERRIDES = {
+  ingredient_tomato: newItemImage('TMT.png'),
+};
+
 export class UIManager {
   constructor({
     timerEl,
@@ -55,14 +65,15 @@ export class UIManager {
     if (!this.inventoryEl) return;
     if (player?.currentItem) {
       const item = player.currentItem;
-      const stateLabel =
-        item.state === 'raw'
-          ? '生'
-          : item.state === 'chopped' || item.state === 'cut'
-          ? '切った'
-          : item.state === 'cooked'
-          ? '調理済み'
-          : item.state;
+      const stateMap = {
+        raw: '生',
+        cut: 'カット済み',
+        chopped: 'カット済み',
+        cooked: '調理済み',
+        toasted: 'トースト済み',
+        assembled: '完成',
+      };
+      const stateLabel = stateMap[item.state] || item.state || '';
       const display = item.display || `${item.type} (${stateLabel})`;
       const label = `持ち物: ${display}`;
       if (label === this.lastInventoryLabel) {
@@ -149,8 +160,20 @@ export class UIManager {
     if (!order) return null;
     if (order.image) return order.image;
     if (order.itemType) {
-      const base = order.itemType.replace(/^ingredient_/, '');
-      return `/static/assets/ingredient/${base}.png`;
+      if (ITEM_ICON_OVERRIDES[order.itemType]) {
+        return ITEM_ICON_OVERRIDES[order.itemType];
+      }
+      if (order.itemType.startsWith('ingredient_')) {
+        const base = order.itemType.replace(/^ingredient_/, '');
+        const mapped = INGREDIENT_ICON_OVERRIDES[base];
+        if (mapped) {
+          return mapped;
+        }
+        return `/static/new_items/${base}.png`;
+      }
+      if (order.itemType.startsWith('dish_')) {
+        return '/static/new_items/hamburger.png';
+      }
     }
     return null;
   }
@@ -218,6 +241,31 @@ export class UIManager {
     timer.appendChild(bar);
 
     details.appendChild(name);
+
+    if (Array.isArray(order.componentItems) && order.componentItems.length > 0) {
+      const list = document.createElement('ul');
+      list.className = 'order-card__recipe';
+      order.componentItems.forEach((component) => {
+        const li = document.createElement('li');
+        li.className = 'order-card__recipe-item';
+        const label = component.label || component.type || '';
+        if (component.image) {
+          const icon = document.createElement('img');
+          icon.src = component.image;
+          icon.alt = label;
+          icon.loading = 'lazy';
+          icon.width = 32;
+          icon.height = 32;
+          li.appendChild(icon);
+        }
+        const span = document.createElement('span');
+        span.textContent = label;
+        li.appendChild(span);
+        list.appendChild(li);
+      });
+      details.appendChild(list);
+    }
+
     details.appendChild(timer);
 
     element.appendChild(thumb);
@@ -229,6 +277,7 @@ export class UIManager {
       timer,
       bar,
       signature: this.signatureForOrder(order),
+      recipeList: details.querySelector('.order-card__recipe'),
       lastLabel: name.textContent,
       lastRatio: null,
       lastRemaining: null,
@@ -242,6 +291,11 @@ export class UIManager {
       dish: order.dish || '',
       itemType: order.itemType || '',
       image: order.image || '',
+      components: (order.componentItems || []).map((component) => ({
+        type: component.type || '',
+        state: component.state || '',
+        label: component.label || '',
+      })),
     };
     return JSON.stringify(payload);
   }

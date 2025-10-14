@@ -11,8 +11,20 @@ const socket = io();
 const canvas = document.getElementById('stageCanvas');
 const ctx = canvas ? canvas.getContext('2d') : null;
 
+const snap = (value) => Math.round(value);
+const snapSize = (value) => Math.max(1, Math.round(value));
+
+if (canvas) {
+    canvas.style.imageRendering = 'pixelated';
+}
+if (ctx) {
+    ctx.imageSmoothingEnabled = false;
+}
+
+const newItemTexture = (filename) => `/static/new_items/${encodeURIComponent(filename)}`;
+
 const bg = new Image();
-bg.src = '/static/assets/background/kitchen.png';
+bg.src = newItemTexture('背景 コンクリート_ブラッシュアップ1.png');
 bg.onload = () => drawCanvas();
 
 const details = {
@@ -44,23 +56,24 @@ const typeLabels = {
 };
 
 const baseTexturePaths = {
-    action_default: '/static/assets/cooking_zone1.png',
-    action_cut: '/static/assets/cooking_zone1.png',
-    action_bake: '/static/assets/cooking_zone2.png',
-    action_boil: '/static/assets/cooking_zone2.png',
-    action_mix: '/static/assets/cooking_zone1.png',
-    delivery: '/static/assets/delivery_zone.png',
-    moving: '/static/assets/obstacle/obstacle2.png',
-    static: '/static/assets/obstacle/obstacle1.png',
-    foodGen: '/static/assets/food_generator.png',
-    transferSrc: '/static/assets/sourceImage.png',
-    transferDst: '/static/assets/destinationImage.png'
+    action_default: newItemTexture('まな板が乗っているカウンター.png'),
+    action_cut: newItemTexture('まな板が乗っているカウンター.png'),
+    action_bake: newItemTexture('フライパンが乗っているカウンター.png'),
+    action_boil: newItemTexture('フライパンが乗っているカウンター.png'),
+    action_mix: newItemTexture('まな板が乗っているカウンター.png'),
+    delivery: newItemTexture('配膳用カウンター.png'),
+    moving: newItemTexture('四角いカウンター .png'),
+    static: newItemTexture('四角いカウンター .png'),
+    foodGen: newItemTexture('食材が出てくるかご.png'),
+    transferSrc: newItemTexture('食材ワープ(青).png'),
+    transferDst: newItemTexture('食材ワープ(紫).png')
 };
 
 const ingredientTexturePaths = {
-    ingredient_tomato: '/static/assets/ingredient/tomato.png',
-    ingredient_lettuce: '/static/assets/ingredient/lettuce.png',
-    ingredient_bread: '/static/assets/ingredient/bread.png'
+    ingredient_burger_buns: '/static/new_items/burger_buns.png',
+    ingredient_beef_patty: '/static/new_items/beef_patty.png',
+    ingredient_lettuce: '/static/new_items/lettuce.png',
+    ingredient_tomato: newItemTexture('TMT.png')
 };
 
 const textures = {};
@@ -100,15 +113,17 @@ function ensureTexture(key) {
     }
     const failures = failedTextures.get(key) || 0;
     if (key.startsWith('ingredient_')) {
+        const name = key.substring('ingredient_'.length);
         if (failures === 0) {
-            const name = key.substring('ingredient_'.length);
-            registerTexture(key, `/static/assets/ingredient/${name}.png`);
+            registerTexture(key, `/static/new_items/${name}.png`);
         } else if (failures === 1) {
-            registerTexture(key, `/static/assets/${key}.png`);
+            registerTexture(key, `/static/assets/ingredient/${name}.png`);
         }
         return textures[key] || null;
     }
     if (failures === 0) {
+        registerTexture(key, `/static/new_items/${key}.png`);
+    } else if (failures === 1) {
         registerTexture(key, `/static/assets/${key}.png`);
     }
     return textures[key] || null;
@@ -384,14 +399,16 @@ function drawFloorGrid() {
     ctx.lineWidth = 1;
     for (let x = cellSize; x < canvas.width; x += cellSize) {
         ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
+        const posX = snap(x);
+        ctx.moveTo(posX, 0);
+        ctx.lineTo(posX, canvas.height);
         ctx.stroke();
     }
     for (let y = cellSize; y < canvas.height; y += cellSize) {
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
+        const posY = snap(y);
+        ctx.moveTo(0, posY);
+        ctx.lineTo(canvas.width, posY);
         ctx.stroke();
     }
     ctx.restore();
@@ -405,18 +422,28 @@ function drawTransferConnections() {
     ctx.setLineDash([14, 10]);
     config.transferObjects.forEach(tr => {
         if (!tr || !tr.sourceZone || !tr.destination) return;
+        const sourceX = snap(tr.sourceZone.x);
+        const sourceY = snap(tr.sourceZone.y);
+        const destX = snap(tr.destination.x);
+        const destY = snap(tr.destination.y);
         ctx.beginPath();
-        ctx.moveTo(tr.sourceZone.x, tr.sourceZone.y);
-        ctx.lineTo(tr.destination.x, tr.destination.y);
+        ctx.moveTo(sourceX, sourceY);
+        ctx.lineTo(destX, destY);
         ctx.stroke();
-        const angle = Math.atan2(tr.destination.y - tr.sourceZone.y, tr.destination.x - tr.sourceZone.x);
+        const angle = Math.atan2(destY - sourceY, destX - sourceX);
         const arrowSize = 14;
-        const ax = tr.destination.x - Math.cos(angle) * 20;
-        const ay = tr.destination.y - Math.sin(angle) * 20;
+        const ax = destX - Math.cos(angle) * 20;
+        const ay = destY - Math.sin(angle) * 20;
         ctx.beginPath();
-        ctx.moveTo(tr.destination.x, tr.destination.y);
-        ctx.lineTo(ax + Math.cos(angle + Math.PI / 2) * arrowSize, ay + Math.sin(angle + Math.PI / 2) * arrowSize);
-        ctx.lineTo(ax + Math.cos(angle - Math.PI / 2) * arrowSize, ay + Math.sin(angle - Math.PI / 2) * arrowSize);
+        ctx.moveTo(destX, destY);
+        ctx.lineTo(
+            snap(ax + Math.cos(angle + Math.PI / 2) * arrowSize),
+            snap(ay + Math.sin(angle + Math.PI / 2) * arrowSize)
+        );
+        ctx.lineTo(
+            snap(ax + Math.cos(angle - Math.PI / 2) * arrowSize),
+            snap(ay + Math.sin(angle - Math.PI / 2) * arrowSize)
+        );
         ctx.closePath();
         ctx.fillStyle = 'rgba(0, 170, 255, 0.6)';
         ctx.fill();
@@ -447,12 +474,13 @@ function drawFoodPreview(d, left, top, width, height) {
     if (!d.nextFood) return;
     const img = ensureTexture(d.nextFood);
     if (!img || !img.complete) return;
-    const size = Math.min(width * 0.6, 72);
+    const size = snapSize(Math.min(width * 0.6, 72));
     const bubbleRadius = size / 2 + 8;
-    const cx = d.x;
-    let cy = top - bubbleRadius - 8;
-    if (cy < bubbleRadius + 6) {
-        cy = top + height + bubbleRadius + 8;
+    const radius = snapSize(bubbleRadius);
+    const cx = snap(d.x);
+    let cy = snap(top - bubbleRadius - 8);
+    if (cy < radius + 6) {
+        cy = snap(top + height + bubbleRadius + 8);
     }
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
@@ -462,11 +490,13 @@ function drawFoodPreview(d, left, top, width, height) {
     ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 4;
     ctx.beginPath();
-    ctx.arc(cx, cy, bubbleRadius, 0, Math.PI * 2);
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.shadowColor = 'transparent';
-    ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+    const leftImg = snap(cx - size / 2);
+    const topImg = snap(cy - size / 2);
+    ctx.drawImage(img, leftImg, topImg, size, size);
     ctx.restore();
 }
 
@@ -493,10 +523,10 @@ function drawTransferLabel(d, left, top, width, height) {
 }
 
 function drawDraggable(d) {
-    const width = d.width;
-    const height = d.height;
-    const left = d.x - width / 2;
-    const top = d.y - height / 2;
+    const width = snapSize(d.width);
+    const height = snapSize(d.height);
+    const left = snap(d.x - width / 2);
+    const top = snap(d.y - height / 2);
     const texture = getTextureForDraggable(d);
 
     ctx.save();
@@ -533,6 +563,7 @@ function drawDraggable(d) {
 
 function drawCanvas() {
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (bg.complete) ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
     drawFloorGrid();
@@ -712,7 +743,7 @@ if (addFoodButton) {
     addFoodButton.onclick = () => {
         ensureStageStructure();
         const idx = config.foodGenerators.length;
-        config.foodGenerators.push({ x: 160 + idx * 50, y: 400, width: 96, height: 96, nextFood: 'ingredient_tomato' });
+        config.foodGenerators.push({ x: 160 + idx * 50, y: 400, width: 96, height: 96, nextFood: 'ingredient_beef_patty' });
         pendingSelectId = `foodGen-${idx}`;
         refreshUi();
     };

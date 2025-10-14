@@ -1,3 +1,41 @@
+const newItemPath = (filename) => `/static/new_items/${encodeURIComponent(filename)}`;
+
+const INGREDIENT_FILE_OVERRIDES = {
+  ingredient_tomato: 'TMT.png',
+};
+
+const STATE_TEXTURE_OVERRIDES = {
+  'ingredient_burger_buns:raw': 'burger_buns.png',
+  'ingredient_burger_buns:toasted': 'burger_buns.png',
+  'ingredient_beef_patty:raw': 'beef_patty.png',
+  'ingredient_beef_patty:cooked': 'grilled_beef_patty.png',
+  'ingredient_lettuce:raw': 'lettuce.png',
+  'ingredient_lettuce:chopped': 'lettuce_cut.png',
+  'ingredient_tomato:raw': 'TMT.png',
+  'ingredient_tomato:chopped': 'TMT_slice.png',
+};
+
+const STATIC_TEXTURE_OVERRIDES = {
+  background: newItemPath('背景 コンクリート_ブラッシュアップ1.png'),
+  action_default: newItemPath('まな板が乗っているカウンター.png'),
+  action_cut: newItemPath('まな板が乗っているカウンター.png'),
+  action_mix: newItemPath('まな板が乗っているカウンター.png'),
+  action_bake: newItemPath('フライパンが乗っているカウンター.png'),
+  action_fry: newItemPath('フライパンが乗っているカウンター.png'),
+  action_grill: newItemPath('フライパンが乗っているカウンター.png'),
+  action_boil: newItemPath('フライパンが乗っているカウンター.png'),
+  delivery_zone: newItemPath('配膳用カウンター.png'),
+  delivery: newItemPath('配膳用カウンター.png'),
+  food_generator: newItemPath('食材が出てくるかご.png'),
+  foodGen: newItemPath('食材が出てくるかご.png'),
+  moving_obstacle: newItemPath('四角いカウンター .png'),
+  static_obstacle: newItemPath('四角いカウンター .png'),
+  sourceImage: newItemPath('食材ワープ(青).png'),
+  destinationImage: newItemPath('食材ワープ(紫).png'),
+  transferSrc: newItemPath('食材ワープ(青).png'),
+  transferDst: newItemPath('食材ワープ(紫).png'),
+};
+
 export class AssetCache {
   constructor() {
     this.cache = new Map();
@@ -37,8 +75,29 @@ export class AssetCache {
       return key;
     }
 
+    if (STATE_TEXTURE_OVERRIDES[key]) {
+      return newItemPath(STATE_TEXTURE_OVERRIDES[key]);
+    }
+
+    if (STATIC_TEXTURE_OVERRIDES[key]) {
+      return STATIC_TEXTURE_OVERRIDES[key];
+    }
+
     if (key.startsWith('ingredient_')) {
-      return `/static/assets/ingredient/${key.replace('ingredient_', '')}.png`;
+      const override = INGREDIENT_FILE_OVERRIDES[key];
+      if (override) {
+        return newItemPath(override);
+      }
+      return newItemPath(`${key.replace('ingredient_', '')}.png`);
+    }
+
+    if (key.includes(':')) {
+      const base = key.split(':', 1)[0];
+      return this.resolvePath(base);
+    }
+
+    if (key.startsWith('dish_')) {
+      return '/static/new_items/hamburger.png';
     }
 
     if (key.startsWith('player')) {
@@ -49,31 +108,10 @@ export class AssetCache {
       return `/static/assets/obstacle/${key}.png`;
     }
 
-    const table = {
-      background: '/static/assets/background/kitchen.png',
-      action_default: '/static/assets/cooking_zone1.png',
-      action_cut: '/static/assets/cooking_zone1.png',
-      action_mix: '/static/assets/cooking_zone1.png',
-      action_bake: '/static/assets/cooking_zone2.png',
-      action_fry: '/static/assets/cooking_zone2.png',
-      action_grill: '/static/assets/cooking_zone2.png',
-      action_boil: '/static/assets/cooking_zone2.png',
-      delivery_zone: '/static/assets/delivery_zone.png',
-      delivery: '/static/assets/delivery_zone.png',
-      food_generator: '/static/assets/food_generator.png',
-      foodGen: '/static/assets/food_generator.png',
-      moving_obstacle: '/static/assets/obstacle/obstacle2.png',
-      static_obstacle: '/static/assets/obstacle/obstacle1.png',
-      sourceImage: '/static/assets/sourceImage.png',
-      destinationImage: '/static/assets/destinationImage.png',
-      transferSrc: '/static/assets/sourceImage.png',
-      transferDst: '/static/assets/destinationImage.png',
-    };
-
-    if (table[key]) {
-      return table[key];
+    const fallback = newItemPath(`${key}.png`);
+    if (this.errorTokens.has(fallback)) {
+      return `/static/assets/${key}.png`;
     }
-
-    return `/static/assets/${key}.png`;
+    return fallback;
   }
 }

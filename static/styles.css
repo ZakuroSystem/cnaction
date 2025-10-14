@@ -11,7 +11,7 @@ body {
 #game-container {
   width: min(100%, 800px);
   aspect-ratio: 4 / 3;
-  margin: 16px auto;
+  margin: 0;
   background-color: #000;
   border: 4px solid #ff7043;
   border-radius: 12px;
@@ -23,36 +23,73 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+  image-rendering: pixelated;
 }
 
 #ui {
-  width: min(100%, 840px);
+  width: min(100%, 1200px);
   margin: 0 auto 24px;
-  text-align: center;
   background-color: #fff3e0;
-  padding: 16px;
+  padding: 18px 16px;
   border: 2px solid #ff7043;
   border-radius: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.play-layout {
+  display: grid;
+  grid-template-columns: clamp(220px, 26vw, 320px) 1fr;
+  grid-template-areas: 'sidebar stage';
+  align-items: start;
+  gap: 20px;
+}
+
+.play-layout__stage {
+  grid-area: stage;
+  display: flex;
+  justify-content: center;
+}
+
+.play-layout__sidebar {
+  grid-area: sidebar;
+  width: 100%;
+  max-width: clamp(220px, 26vw, 320px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 #orders-panel {
-  margin: 0 auto 16px auto;
+  margin: 0;
   width: 100%;
   background: #ffe0b2;
   border: 2px solid #ff7043;
   border-radius: 12px;
-  padding: 16px;
+  padding: 14px 16px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
   text-align: left;
   box-sizing: border-box;
 }
 
+.status-panel {
+  background: #ffe0b2;
+  border: 2px solid #ff7043;
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 
 #orders-panel h3 {
-  margin: 0 0 12px 0;
-  font-size: 24px;
+  margin: 0 0 8px 0;
+  font-size: 18px;
   color: #bf360c;
 }
 
@@ -60,7 +97,7 @@ body {
 .order-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 
@@ -68,18 +105,18 @@ body {
   background: #ffffff;
   border: 1px solid #ffcc80;
   border-radius: 10px;
-  padding: 12px 16px;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 16px;
+  gap: 12px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 
 .order-card__thumb {
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
   border-radius: 10px;
   background: #fff3e0;
   display: flex;
@@ -109,15 +146,41 @@ body {
 .order-card__details {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   flex: 1;
 }
 
 
 .order-card__name {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: bold;
   color: #d84315;
+}
+
+.order-card__recipe {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-card__recipe-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #5d4037;
+}
+
+.order-card__recipe-item img {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px #ffe0b2;
+  background: #ffffff;
+  padding: 2px;
 }
 
 
@@ -144,10 +207,14 @@ body {
 #timer,
 #score,
 #inventory {
-  font-size: clamp(18px, 3vw, 24px);
-  margin: 6px 0;
+  font-size: clamp(16px, 2.4vw, 20px);
+  margin: 0;
   color: #bf360c;
-  font-weight: bold;
+  font-weight: 700;
+}
+
+.status-panel__item {
+  line-height: 1.4;
 }
 
 .game-over {
@@ -316,13 +383,22 @@ body {
   letter-spacing: 0.05em;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1100px) {
   body {
     padding: 0 12px 24px;
   }
 
   #ui {
-    padding: 12px;
+    padding: 16px 12px;
+  }
+
+  .play-layout {
+    grid-template-columns: clamp(200px, 32vw, 280px) 1fr;
+    gap: 16px;
+  }
+
+  .play-layout__sidebar {
+    max-width: clamp(200px, 32vw, 300px);
   }
 
   #orders-panel {
@@ -332,6 +408,20 @@ body {
   .order-card {
     gap: 12px;
     padding: 12px;
+  }
+
+  .order-card__recipe {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 4px 8px;
+  }
+
+  .order-card__recipe-item {
+    font-size: 13px;
+  }
+
+  .order-card__recipe-item img {
+    width: 28px;
+    height: 28px;
   }
 
   .order-card__thumb {
@@ -355,6 +445,27 @@ body {
 @media (max-width: 480px) {
   #start-overlay {
     padding: 20px 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .play-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'stage'
+      'sidebar';
+  }
+
+  .play-layout__sidebar {
+    max-width: 100%;
+  }
+
+  .play-layout__stage {
+    justify-content: center;
+  }
+
+  #game-container {
+    margin: 0 auto;
   }
 }
 
@@ -493,31 +604,31 @@ form fieldset {
 }
 
 .stage-object-icon-action {
-  background-image: url('/static/assets/cooking_zone1.png');
+  background-image: url('/static/new_items/%E3%81%BE%E3%81%AA%E6%9D%BF%E3%81%8C%E4%B9%97%E3%81%A3%E3%81%A6%E3%81%84%E3%82%8B%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC.png');
 }
 
 .stage-object-icon-delivery {
-  background-image: url('/static/assets/delivery_zone.png');
+  background-image: url('/static/new_items/%E9%85%8D%E8%86%B3%E7%94%A8%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC.png');
 }
 
 .stage-object-icon-moving {
-  background-image: url('/static/assets/obstacle/obstacle2.png');
+  background-image: url('/static/new_items/%E5%9B%9B%E8%A7%92%E3%81%84%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC%20.png');
 }
 
 .stage-object-icon-static {
-  background-image: url('/static/assets/obstacle/obstacle1.png');
+  background-image: url('/static/new_items/%E5%9B%9B%E8%A7%92%E3%81%84%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC%20.png');
 }
 
 .stage-object-icon-foodGen {
-  background-image: url('/static/assets/food_generator.png');
+  background-image: url('/static/new_items/%E9%A3%9F%E6%9D%90%E3%81%8C%E5%87%BA%E3%81%A6%E3%81%8F%E3%82%8B%E3%81%8B%E3%81%94.png');
 }
 
 .stage-object-icon-transferSrc {
-  background-image: url('/static/assets/sourceImage.png');
+  background-image: url('/static/new_items/%E9%A3%9F%E6%9D%90%E3%83%AF%E3%83%BC%E3%83%97%28%E9%9D%92%29.png');
 }
 
 .stage-object-icon-transferDst {
-  background-image: url('/static/assets/destinationImage.png');
+  background-image: url('/static/new_items/%E9%A3%9F%E6%9D%90%E3%83%AF%E3%83%BC%E3%83%97%28%E7%B4%AB%29.png');
 }
 
 .stage-object-item small {
