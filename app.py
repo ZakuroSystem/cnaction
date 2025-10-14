@@ -636,34 +636,52 @@ def _clear_cooking_task_for_item(
 ) -> bool:
     if not isinstance(item_id, int) and not item_type:
         return False
+
+    def _task_matches(task: dict) -> bool:
+        if not isinstance(task, dict):
+            return False
+        raw_result_id = task.get('result_item_id')
+        if raw_result_id is None:
+            raw_result_id = task.get('resultItemId')
+        try:
+            result_id = int(raw_result_id)
+        except (TypeError, ValueError):
+            result_id = None
+        if isinstance(item_id, int) and isinstance(result_id, int) and result_id == item_id:
+            return True
+        result_type = task.get('result_type') or task.get('resultType')
+        if result_type and item_type and result_type == item_type:
+            result_state = task.get('result_state')
+            if result_state is None:
+                result_state = task.get('resultState')
+            if result_state is None or result_state == item_state:
+                progress = task.get('progress')
+                finished_at = task.get('finishedAt')
+                if progress is None or progress >= 1.0 or finished_at:
+                    return True
+        return False
+
+    cleared = False
+    registry = _ensure_cooking_registry(rs)
+    for entry in list(registry.values()):
+        zone = entry.get('zone') if isinstance(entry, dict) else None
+        task = entry.get('task') if isinstance(entry, dict) else None
+        if not isinstance(zone, dict) or not _task_matches(task):
+            continue
+        if _clear_zone_cooking(rs, zone):
+            cleared = True
+
+    if cleared:
+        return True
+
     zones = rs.config.get('actionZones') if isinstance(rs.config, dict) else None
     if not zones:
         return False
-    cleared = False
     for zone in zones:
         if not isinstance(zone, dict):
             continue
         cooking = zone.get('cooking')
-        if not cooking:
-            continue
-        result_id = cooking.get('result_item_id')
-        try:
-            result_id = int(result_id)
-        except (TypeError, ValueError):
-            result_id = None
-        matches_item = False
-        if isinstance(item_id, int) and result_id == item_id:
-            matches_item = True
-        elif result_id is None:
-            result_type = cooking.get('result_type')
-            result_state = cooking.get('result_state')
-            if item_type and result_type == item_type:
-                if result_state is None or result_state == item_state:
-                    progress = cooking.get('progress')
-                    finished_at = cooking.get('finishedAt')
-                    if progress is None or progress >= 1.0 or finished_at:
-                        matches_item = True
-        if not matches_item:
+        if not cooking or not _task_matches(cooking):
             continue
         if _clear_zone_cooking(rs, zone):
             cleared = True
@@ -1394,6 +1412,8 @@ def run_cooking_task(room: str, zone: dict, task: dict):
             result_item_id = cooked.id
             current['result_item_id'] = result_item_id
             current['result_item_state'] = result_state
+            if result_type and result_state is not None:
+                current['texture'] = f"{result_type}:{result_state}"
             current['finishedAt'] = now
             current['displayText'] = display
             zone['occupied'] = False

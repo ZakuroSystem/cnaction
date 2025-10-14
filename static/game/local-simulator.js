@@ -904,36 +904,57 @@ export class LocalSimulator {
     if (!this.state?.config?.actionZones) {
       return false;
     }
-    const zones = this.state.config.actionZones;
-    let cleared = false;
-    for (let i = 0; i < zones.length; i += 1) {
-      const zone = zones[i];
-      if (!zone || !zone.cooking) continue;
-      const task = zone.cooking;
-      const resultId = Number(task.result_item_id ?? task.resultItemId);
-      let matches = false;
-      if (Number.isFinite(resultId) && Number.isFinite(itemId) && resultId === itemId) {
-        matches = true;
-      } else if (!Number.isFinite(resultId) && itemType && task.result_type === itemType) {
-        const taskState = task.result_state;
-        if (taskState == null || taskState === itemState) {
-          const finishedAt = task.finishedAt;
+
+    const matchesTask = (task) => {
+      if (!task) return false;
+      const rawId = task.result_item_id ?? task.resultItemId;
+      const resultId = Number(rawId);
+      if (Number.isFinite(itemId) && Number.isFinite(resultId) && resultId === itemId) {
+        return true;
+      }
+      if (itemType && task.result_type === itemType) {
+        const state = task.result_state ?? task.resultState;
+        if (state == null || state === itemState) {
           const progress = Number(task.progress);
-          if (!Number.isFinite(progress) || progress >= 1 || finishedAt) {
-            matches = true;
+          if (!Number.isFinite(progress) || progress >= 1 || task.finishedAt) {
+            return true;
           }
         }
       }
-      if (!matches) {
+      return false;
+    };
+
+    let cleared = false;
+    for (const [taskId, info] of Array.from(this.cookingTasks.entries())) {
+      if (!info || !matchesTask(info.task)) {
+        continue;
+      }
+      const zone = this.state.config.actionZones[info.zoneIndex];
+      if (!zone) {
+        this.cookingTasks.delete(taskId);
         continue;
       }
       delete zone.cooking;
       zone.occupied = false;
-      if (task.id && this.cookingTasks.has(task.id)) {
-        this.cookingTasks.delete(task.id);
-      }
+      this.cookingTasks.delete(taskId);
       cleared = true;
     }
+
+    const zones = this.state.config.actionZones;
+    if (!cleared) {
+      for (let i = 0; i < zones.length; i += 1) {
+        const zone = zones[i];
+        if (!zone || !zone.cooking || !matchesTask(zone.cooking)) continue;
+        const task = zone.cooking;
+        delete zone.cooking;
+        zone.occupied = false;
+        if (task.id) {
+          this.cookingTasks.delete(task.id);
+        }
+        cleared = true;
+      }
+    }
+
     if (cleared) {
       this.dirty = true;
     }
@@ -1279,6 +1300,9 @@ export class LocalSimulator {
         task.displayText = display;
         task.result_item_id = worldItem.id;
         task.result_item_state = task.result_state;
+        if (task.result_type && task.result_state != null) {
+          task.texture = `${task.result_type}:${task.result_state}`;
+        }
         task.finishedAt = now;
         info.resultItemId = worldItem.id;
         info.spawnedAt = now;
