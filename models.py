@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import Dict, List, Optional
+
 from utils import get_default_config
 
 @dataclass
@@ -40,3 +42,4 @@ class RoomState:
     clientManaged: bool = False
     runtime: dict = field(default_factory=dict, repr=False, compare=False)
     configRevision: int = 0
+    lock: RLock = field(default_factory=RLock, repr=False, compare=False)

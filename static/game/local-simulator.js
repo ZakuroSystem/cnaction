@@ -1297,6 +1297,39 @@ export class LocalSimulator {
         normalised = true;
       }
 
+      if (!task.settlement || typeof task.settlement !== 'object') {
+        const settlementId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        task.settlement = {
+          id: settlementId,
+          status: 'pending',
+          createdAt: Number(task.startedAt) || seedTime,
+          sourceItemId: task.source_item?.id ?? null,
+        };
+        normalised = true;
+      } else {
+        const settlement = task.settlement;
+        if (!settlement.id) {
+          settlement.id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          normalised = true;
+        }
+        if (!settlement.status) {
+          settlement.status = 'pending';
+          normalised = true;
+        }
+        if (!Number.isFinite(settlement.createdAt)) {
+          settlement.createdAt = Number(task.startedAt) || seedTime;
+          normalised = true;
+        }
+        if (settlement.sourceItemId == null && task.source_item?.id != null) {
+          settlement.sourceItemId = task.source_item.id;
+          normalised = true;
+        }
+      }
+
       const id = task.id;
       const startedAt = Number(task.startedAt) || seedTime;
       const entry = this.cookingTasks.get(id);
@@ -1375,34 +1408,57 @@ export class LocalSimulator {
       task.elapsed = elapsed;
       task.remaining = remaining;
 
+      const settlement = task.settlement || null;
+
       if (!info.resultItemId && progress >= 1) {
-        const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
-        const source = task.source_item || {};
-        const worldItem = this.registerWorldItem({
-          id: Number.isFinite(source.id) ? source.id : 0,
-          type: task.result_type,
-          x: zone.x,
-          y: zone.y,
-          state: task.result_state,
-          display,
-          uuids: normalizeItemUuids(source.uuids),
-        }, true);
-        zone.occupied = false;
-        if (!worldItem) {
+        if (settlement && settlement.status === 'settled') {
+          const knownId = Number(settlement.resultItemId);
+          if (Number.isFinite(knownId)) {
+            info.resultItemId = knownId;
+            task.result_item_id = knownId;
+          }
+        } else {
+          const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
+          const source = task.source_item || {};
+          const candidate = {
+            id: Number.isFinite(source.id) ? source.id : 0,
+            type: task.result_type,
+            x: zone.x,
+            y: zone.y,
+            state: task.result_state,
+            display,
+            uuids: normalizeItemUuids(source.uuids),
+          };
+          const worldItem = this.registerWorldItem(candidate, true);
+          zone.occupied = false;
+          if (!worldItem) {
+            if (settlement) {
+              settlement.status = 'pending';
+              settlement.lastError = 'uuid-conflict';
+              settlement.lastFailure = now;
+            }
+            this.dirty = true;
+            continue;
+          }
+          if (settlement) {
+            settlement.status = 'settled';
+            settlement.resultItemId = worldItem.id;
+            settlement.settledAt = now;
+            delete settlement.lastError;
+            delete settlement.lastFailure;
+          }
+          task.displayText = display;
+          task.result_item_id = worldItem.id;
+          task.result_item_state = task.result_state;
+          if (task.result_type && task.result_state != null) {
+            task.texture = `${task.result_type}:${task.result_state}`;
+          }
+          task.finishedAt = now;
+          info.resultItemId = worldItem.id;
+          info.spawnedAt = now;
           this.dirty = true;
           continue;
         }
-        task.displayText = display;
-        task.result_item_id = worldItem.id;
-        task.result_item_state = task.result_state;
-        if (task.result_type && task.result_state != null) {
-          task.texture = `${task.result_type}:${task.result_state}`;
-        }
-        task.finishedAt = now;
-        info.resultItemId = worldItem.id;
-        info.spawnedAt = now;
-        this.dirty = true;
-        continue;
       }
 
       if (info.resultItemId && !info.burned) {
@@ -1410,6 +1466,10 @@ export class LocalSimulator {
         if (!stillPresent) {
           delete zone.cooking;
           this.cookingTasks.delete(taskId);
+          if (settlement) {
+            settlement.status = 'captured';
+            settlement.closedAt = now;
+          }
           this.dirty = true;
           continue;
         }
@@ -1430,6 +1490,10 @@ export class LocalSimulator {
           task.burned = true;
           info.burned = true;
           info.burnDisplayAt = now;
+          if (settlement) {
+            settlement.status = 'voided';
+            settlement.closedAt = now;
+          }
           this.dirty = true;
           continue;
         }
@@ -1440,6 +1504,9 @@ export class LocalSimulator {
         if (shownFor >= 1.5) {
           delete zone.cooking;
           this.cookingTasks.delete(taskId);
+          if (settlement && settlement.closedAt == null) {
+            settlement.closedAt = now;
+          }
           this.dirty = true;
         }
       }
@@ -1640,6 +1707,15 @@ export class LocalSimulator {
         ? crypto.randomUUID()
         : `cook-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const textureKey = item.type && item.state ? `${item.type}:${item.state}` : item.type;
+      const settlementId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const settlement = {
+        id: settlementId,
+        status: 'pending',
+        createdAt: nowSeconds(),
+        sourceItemId: sourceItem?.id ?? null,
+      };
       const task = {
         id,
         progress: 0,
@@ -1656,6 +1732,7 @@ export class LocalSimulator {
         result_display: formatItemDisplay(actionInfo.resultType, actionInfo.resultState),
         startedAt: nowSeconds(),
         source_item: sourceItem,
+        settlement,
       };
       zone.cooking = task;
       this.cookingTasks.set(id, {
