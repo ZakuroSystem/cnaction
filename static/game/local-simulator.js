@@ -682,7 +682,32 @@ function cloneItem(item) {
     y: item.y,
     state: item.state,
     display: item.display,
+    uuids: normalizeItemUuids(item.uuids),
   };
+}
+
+function normalizeItemUuids(raw) {
+  if (typeof raw === 'string') {
+    raw = [raw];
+  }
+  const result = [];
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      if (result.includes(trimmed)) continue;
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
+function generateItemUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `itm-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function matchRequirement(type, state, requirement) {
@@ -824,6 +849,7 @@ export class LocalSimulator {
     this.runtime = buildRuntimeMetadata({});
     this.configRevision = 0;
     this.itemLookup = new Map();
+    this.uuidLookup = new Map();
   }
 
   hasState() {
@@ -849,18 +875,137 @@ export class LocalSimulator {
     return this.itemLookup;
   }
 
+  ensureUuidLookup() {
+    if (!(this.uuidLookup instanceof Map)) {
+      this.uuidLookup = new Map();
+    }
+    return this.uuidLookup;
+  }
+
   rebuildItemLookup() {
     this.itemLookup = buildItemLookup(this.state?.items);
+    this.rebuildItemUuidLookup();
+  }
+
+  rebuildItemUuidLookup() {
+    const lookup = this.ensureUuidLookup();
+    lookup.clear();
+    if (!this.state) {
+      return;
+    }
+    Object.values(this.state.players || {}).forEach((player) => {
+      if (player?.currentItem) {
+        this.registerItemUuids(player.currentItem);
+      }
+    });
+    (this.state.items || []).forEach((item) => {
+      this.registerItemUuids(item);
+    });
+  }
+
+  registerItemUuids(item) {
+    if (!item) return true;
+    item.uuids = normalizeItemUuids(item.uuids);
+    if (!item.uuids.length) {
+      return true;
+    }
+    const lookup = this.ensureUuidLookup();
+    for (const [key, existing] of Array.from(lookup.entries())) {
+      if (existing === item && !item.uuids.includes(key)) {
+        lookup.delete(key);
+      }
+    }
+    for (const uid of item.uuids) {
+      const existing = lookup.get(uid);
+      if (existing && existing !== item) {
+        return false;
+      }
+    }
+    for (const uid of item.uuids) {
+      lookup.set(uid, item);
+    }
+    return true;
+  }
+
+  unregisterItemUuids(item) {
+    if (!item) return;
+    const lookup = this.ensureUuidLookup();
+    for (const [key, existing] of Array.from(lookup.entries())) {
+      if (existing === item) {
+        lookup.delete(key);
+      }
+    }
+  }
+
+  isSettlementOpen(settlement) {
+    if (!settlement || typeof settlement !== 'object') {
+      return false;
+    }
+    const status = settlement.status;
+    return status !== 'captured' && status !== 'voided';
+  }
+
+  restoreSourceItem(zone, task) {
+    if (!this.state || !task) {
+      return false;
+    }
+    const settlement = task.settlement || null;
+    if (!this.isSettlementOpen(settlement)) {
+      return false;
+    }
+    const source = task.source_item || null;
+    if (!source) {
+      return false;
+    }
+    const now = nowSeconds();
+    const fallbackId = Number.isFinite(source.id) ? source.id : this.state.nextItemId;
+    const restored = {
+      id: fallbackId,
+      type: source.type,
+      state: source.state ?? 'raw',
+      x: Number.isFinite(zone?.x) ? zone.x : Number(source.x) || 0,
+      y: Number.isFinite(zone?.y) ? zone.y : Number(source.y) || 0,
+      display: source.display || formatItemDisplay(source.type, source.state),
+      uuids: normalizeItemUuids(source.uuids),
+    };
+    const worldItem = this.registerWorldItem(restored, false);
+    if (worldItem) {
+      if (settlement) {
+        settlement.status = 'voided';
+        settlement.closedAt = now;
+        settlement.voidReason = 'cancelled';
+        delete settlement.lastError;
+        delete settlement.lastFailure;
+      }
+      this.dirty = true;
+      return true;
+    }
+    if (settlement) {
+      settlement.status = 'pending';
+      settlement.lastError = 'uuid-conflict';
+      settlement.lastFailure = now;
+      this.dirty = true;
+    }
+    return false;
   }
 
   registerWorldItem(item, assignNewId = false) {
     if (!this.state) return null;
-    const worldItem = { ...item };
+    const worldItem = {
+      ...item,
+      uuids: normalizeItemUuids(item?.uuids),
+    };
+    if (item) {
+      this.unregisterItemUuids(item);
+    }
     if (assignNewId || !Number.isFinite(worldItem.id)) {
       worldItem.id = this.state.nextItemId;
       this.state.nextItemId += 1;
     } else if (worldItem.id >= this.state.nextItemId) {
       this.state.nextItemId = worldItem.id + 1;
+    }
+    if (!this.registerItemUuids(worldItem)) {
+      return null;
     }
     this.state.items.push(worldItem);
     this.ensureItemLookup().set(worldItem.id, worldItem);
@@ -1204,6 +1349,39 @@ export class LocalSimulator {
         normalised = true;
       }
 
+      if (!task.settlement || typeof task.settlement !== 'object') {
+        const settlementId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        task.settlement = {
+          id: settlementId,
+          status: 'pending',
+          createdAt: Number(task.startedAt) || seedTime,
+          sourceItemId: task.source_item?.id ?? null,
+        };
+        normalised = true;
+      } else {
+        const settlement = task.settlement;
+        if (!settlement.id) {
+          settlement.id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          normalised = true;
+        }
+        if (!settlement.status) {
+          settlement.status = 'pending';
+          normalised = true;
+        }
+        if (!Number.isFinite(settlement.createdAt)) {
+          settlement.createdAt = Number(task.startedAt) || seedTime;
+          normalised = true;
+        }
+        if (settlement.sourceItemId == null && task.source_item?.id != null) {
+          settlement.sourceItemId = task.source_item.id;
+          normalised = true;
+        }
+      }
+
       const id = task.id;
       const startedAt = Number(task.startedAt) || seedTime;
       const entry = this.cookingTasks.get(id);
@@ -1261,10 +1439,24 @@ export class LocalSimulator {
     for (const [taskId, info] of Array.from(this.cookingTasks.entries())) {
       const zone = zones[info.zoneIndex];
       if (!zone || !zone.cooking || zone.cooking.id !== taskId) {
+        if (info.task && this.isSettlementOpen(info.task.settlement)) {
+          this.restoreSourceItem(zone, info.task);
+        }
+        if (zone && (!zone.cooking || zone.cooking.id === taskId)) {
+          if (zone.occupied) {
+            this.dirty = true;
+          }
+          delete zone.cooking;
+          zone.occupied = false;
+        }
         this.cookingTasks.delete(taskId);
         continue;
       }
       const task = zone.cooking;
+      if (this.isSettlementOpen(task.settlement) && !zone.occupied) {
+        zone.occupied = true;
+        this.dirty = true;
+      }
       const elapsed = now - info.startedAt;
       const duration = Math.max(Number(task.duration) || 0.1, 0.1);
       const progress = Math.max(0, Math.min(elapsed / duration, 1));
@@ -1282,39 +1474,68 @@ export class LocalSimulator {
       task.elapsed = elapsed;
       task.remaining = remaining;
 
+      const settlement = task.settlement || null;
+
       if (!info.resultItemId && progress >= 1) {
-        const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
-        const worldItem = this.registerWorldItem({
-          id: 0,
-          type: task.result_type,
-          x: zone.x,
-          y: zone.y,
-          state: task.result_state,
-          display,
-        }, true);
-        zone.occupied = false;
-        if (!worldItem) {
+        if (settlement && settlement.status === 'settled') {
+          const knownId = Number(settlement.resultItemId);
+          if (Number.isFinite(knownId)) {
+            info.resultItemId = knownId;
+            task.result_item_id = knownId;
+          }
+        } else {
+          const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
+          const source = task.source_item || {};
+          const candidate = {
+            id: Number.isFinite(source.id) ? source.id : 0,
+            type: task.result_type,
+            x: zone.x,
+            y: zone.y,
+            state: task.result_state,
+            display,
+            uuids: normalizeItemUuids(source.uuids),
+          };
+          const worldItem = this.registerWorldItem(candidate, true);
+          if (!worldItem) {
+            if (settlement) {
+              settlement.status = 'pending';
+              settlement.lastError = 'uuid-conflict';
+              settlement.lastFailure = now;
+            }
+            this.dirty = true;
+            continue;
+          }
+          if (settlement) {
+            settlement.status = 'settled';
+            settlement.resultItemId = worldItem.id;
+            settlement.settledAt = now;
+            delete settlement.lastError;
+            delete settlement.lastFailure;
+          }
+          task.displayText = display;
+          task.result_item_id = worldItem.id;
+          task.result_item_state = task.result_state;
+          if (task.result_type && task.result_state != null) {
+            task.texture = `${task.result_type}:${task.result_state}`;
+          }
+          task.finishedAt = now;
+          info.resultItemId = worldItem.id;
+          info.spawnedAt = now;
           this.dirty = true;
           continue;
         }
-        task.displayText = display;
-        task.result_item_id = worldItem.id;
-        task.result_item_state = task.result_state;
-        if (task.result_type && task.result_state != null) {
-          task.texture = `${task.result_type}:${task.result_state}`;
-        }
-        task.finishedAt = now;
-        info.resultItemId = worldItem.id;
-        info.spawnedAt = now;
-        this.dirty = true;
-        continue;
       }
 
       if (info.resultItemId && !info.burned) {
         const stillPresent = this.ensureItemLookup().has(info.resultItemId);
         if (!stillPresent) {
           delete zone.cooking;
+          zone.occupied = false;
           this.cookingTasks.delete(taskId);
+          if (settlement) {
+            settlement.status = 'captured';
+            settlement.closedAt = now;
+          }
           this.dirty = true;
           continue;
         }
@@ -1328,12 +1549,17 @@ export class LocalSimulator {
           if (!removed) {
             continue;
           }
+          this.unregisterItemUuids(removed);
           task.displayText = '消し炭になってしまった！';
           task.progress = 0;
           task.remaining = 0;
           task.burned = true;
           info.burned = true;
           info.burnDisplayAt = now;
+          if (settlement) {
+            settlement.status = 'voided';
+            settlement.closedAt = now;
+          }
           this.dirty = true;
           continue;
         }
@@ -1343,7 +1569,11 @@ export class LocalSimulator {
         const shownFor = now - (info.burnDisplayAt || now);
         if (shownFor >= 1.5) {
           delete zone.cooking;
+          zone.occupied = false;
           this.cookingTasks.delete(taskId);
+          if (settlement && settlement.closedAt == null) {
+            settlement.closedAt = now;
+          }
           this.dirty = true;
         }
       }
@@ -1426,7 +1656,15 @@ export class LocalSimulator {
     if (!removed) {
       return false;
     }
-    player.currentItem = { ...removed };
+    this.unregisterItemUuids(removed);
+    const carried = {
+      ...removed,
+      uuids: normalizeItemUuids(removed.uuids),
+    };
+    if (!this.registerItemUuids(carried)) {
+      return false;
+    }
+    player.currentItem = carried;
     return true;
   }
 
@@ -1456,8 +1694,12 @@ export class LocalSimulator {
         y,
         state,
         display: formatItemDisplay(wanted, state),
+        uuids: [generateItemUuid()],
       };
       this.state.nextItemId += 1;
+      if (!this.registerItemUuids(newItem)) {
+        continue;
+      }
       player.currentItem = newItem;
       generator.nextFood = randomChoice(choices) || wanted;
       return true;
@@ -1515,13 +1757,22 @@ export class LocalSimulator {
     const zones = this.state.config?.actionZones || [];
     for (let i = 0; i < zones.length; i += 1) {
       const zone = zones[i];
-      if (zone.action !== actionInfo.action || zone.occupied) {
+      if (zone.action !== actionInfo.action) {
+        continue;
+      }
+      if (zone.cooking && this.isSettlementOpen(zone.cooking.settlement)) {
+        zone.occupied = true;
+        continue;
+      }
+      if (zone.occupied) {
         continue;
       }
       if (!inZone(x, y, zone)) {
         continue;
       }
       zone.occupied = true;
+      const sourceItem = cloneItem(item);
+      this.unregisterItemUuids(item);
       player.currentItem = null;
       player.cooking = false;
       player.currentZone = null;
@@ -1530,6 +1781,15 @@ export class LocalSimulator {
         ? crypto.randomUUID()
         : `cook-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const textureKey = item.type && item.state ? `${item.type}:${item.state}` : item.type;
+      const settlementId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const settlement = {
+        id: settlementId,
+        status: 'pending',
+        createdAt: nowSeconds(),
+        sourceItemId: sourceItem?.id ?? null,
+      };
       const task = {
         id,
         progress: 0,
@@ -1545,6 +1805,8 @@ export class LocalSimulator {
         result_state: actionInfo.resultState,
         result_display: formatItemDisplay(actionInfo.resultType, actionInfo.resultState),
         startedAt: nowSeconds(),
+        source_item: sourceItem,
+        settlement,
       };
       zone.cooking = task;
       this.cookingTasks.set(id, {
@@ -1584,6 +1846,7 @@ export class LocalSimulator {
       const penalty = Number(this.state.config?.wrongOrderPenalty) || 5;
       this.state.score -= penalty;
     }
+    this.unregisterItemUuids(item);
     player.currentItem = null;
     return true;
   }
@@ -1632,6 +1895,13 @@ export class LocalSimulator {
       const otherState = other.state || null;
       this.clearCookingTaskForItem(otherId, otherType, otherState);
       this.clearCookingTaskForItem(itemId, itemType, itemState);
+      const mergedUuids = normalizeItemUuids([
+        ...(other.uuids || []),
+        ...(item.uuids || []),
+      ]);
+      this.unregisterItemUuids(item);
+      other.uuids = mergedUuids;
+      this.registerItemUuids(other);
       other.type = resultType;
       other.state = resultState;
       other.display = formatItemDisplay(resultType, resultState);
@@ -1649,7 +1919,11 @@ export class LocalSimulator {
         break;
       }
     }
-    this.registerWorldItem(item, true);
+    const worldItem = this.registerWorldItem(item, true);
+    if (!worldItem) {
+      this.registerItemUuids(item);
+      return;
+    }
     player.currentItem = null;
   }
 

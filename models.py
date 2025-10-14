@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import Dict, List, Optional
+
 from utils import get_default_config
 
 @dataclass
@@ -10,6 +12,7 @@ class Item:
     y: float
     state: str = 'raw'
     display: Optional[str] = None
+    uuids: List[str] = field(default_factory=list)
 
 @dataclass
 class Player:
@@ -26,6 +29,7 @@ class RoomState:
     players: Dict[str, Player] = field(default_factory=dict)
     items: List[Item] = field(default_factory=list)
     item_lookup: Dict[int, Item] = field(default_factory=dict, repr=False, compare=False)
+    uuid_lookup: Dict[str, Item] = field(default_factory=dict, repr=False, compare=False)
     cooking_tasks: Dict[str, dict] = field(default_factory=dict, repr=False, compare=False)
     orders: List[dict] = field(default_factory=list)
     score: int = 0
@@ -38,3 +42,4 @@ class RoomState:
     clientManaged: bool = False
     runtime: dict = field(default_factory=dict, repr=False, compare=False)
     configRevision: int = 0
+    lock: RLock = field(default_factory=RLock, repr=False, compare=False)
