@@ -1561,6 +1561,10 @@ export class LocalSimulator {
     item.x = x;
     item.y = y;
     item.display = formatItemDisplay(item.type, item.state);
+    const itemId = Number.isFinite(item.id) ? item.id : null;
+    const itemType = item.type || null;
+    const itemState = item.state || null;
+    this.clearCookingTaskForItem(itemId, itemType, itemState);
     const recipes = Array.isArray(this.state?.config?.combinationRecipes)
       && this.state.config.combinationRecipes.length
       ? this.state.config.combinationRecipes
@@ -1590,6 +1594,11 @@ export class LocalSimulator {
         continue;
       }
       const resultState = result.state || defaultItemState(resultType);
+      const otherId = Number.isFinite(other.id) ? other.id : null;
+      const otherType = other.type || null;
+      const otherState = other.state || null;
+      this.clearCookingTaskForItem(otherId, otherType, otherState);
+      this.clearCookingTaskForItem(itemId, itemType, itemState);
       other.type = resultType;
       other.state = resultState;
       other.display = formatItemDisplay(resultType, resultState);

@@ -1366,6 +1366,16 @@ def on_interact(data):
     itm.x, itm.y = x, y
     itm.display = format_item_display(itm.type, itm.state)
 
+    source_item_id = getattr(itm, 'id', None)
+    source_item_type = getattr(itm, 'type', None)
+    source_item_state = getattr(itm, 'state', None)
+    _clear_cooking_task_for_item(
+        rs,
+        source_item_id if isinstance(source_item_id, int) else None,
+        source_item_type,
+        source_item_state,
+    )
+
     stack_tolerance = PLAYER_RADIUS + 8
     for other in rs.items:
         if other is itm:
@@ -1396,6 +1406,23 @@ def on_interact(data):
         if not result_type:
             continue
         result_state = result.get('state') or default_item_state(result_type)
+        other_original_type = getattr(other, 'type', None)
+        other_original_state = getattr(other, 'state', None)
+        other_id = getattr(other, 'id', None)
+
+        _clear_cooking_task_for_item(
+            rs,
+            other_id if isinstance(other_id, int) else None,
+            other_original_type,
+            other_original_state,
+        )
+        _clear_cooking_task_for_item(
+            rs,
+            source_item_id if isinstance(source_item_id, int) else None,
+            source_item_type,
+            source_item_state,
+        )
+
         other.type = result_type
         other.state = result_state
         other.display = format_item_display(result_type, result_state)
