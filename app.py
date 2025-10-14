@@ -433,6 +433,7 @@ def _serialize_item(item: Optional[Item]) -> Optional[dict]:
         'y': item.y,
         'state': item.state,
         'display': item.display,
+        'uuids': list(getattr(item, 'uuids', []) or []),
     }
 
 
@@ -520,6 +521,30 @@ def _coerce_int(value, default=0):
         return default
 
 
+def _normalize_uuid_list(raw) -> list:
+    if isinstance(raw, str):
+        raw = [raw]
+    uuids = []
+    if isinstance(raw, (list, tuple, set)):
+        for value in raw:
+            if isinstance(value, str):
+                value = value.strip()
+            if not value:
+                continue
+            if not isinstance(value, str):
+                continue
+            if value in uuids:
+                continue
+            uuids.append(value)
+    return uuids
+
+
+def _normalize_item_uuids(item: Item) -> list:
+    uuids = _normalize_uuid_list(getattr(item, 'uuids', None))
+    item.uuids = uuids
+    return uuids
+
+
 def _item_from_snapshot(data: dict, fallback_id: int) -> Item:
     item_id = _coerce_int(data.get('id'), fallback_id)
     return Item(
@@ -529,6 +554,7 @@ def _item_from_snapshot(data: dict, fallback_id: int) -> Item:
         y=_coerce_float(data.get('y'), 0.0),
         state=str(data.get('state') or 'raw'),
         display=data.get('display') or None,
+        uuids=_normalize_uuid_list(data.get('uuids')),
     )
 
 
@@ -540,6 +566,61 @@ def _ensure_item_lookup(rs: RoomState) -> Dict[int, Item]:
         for itm in rs.items:
             lookup[itm.id] = itm
     return lookup
+
+
+def _ensure_uuid_lookup(rs: RoomState) -> Dict[str, Item]:
+    lookup = getattr(rs, 'uuid_lookup', None)
+    if lookup is None:
+        lookup = {}
+        rs.uuid_lookup = lookup
+    return lookup
+
+
+def _register_item_uuids(rs: RoomState, item: Optional[Item]) -> bool:
+    if not item:
+        return True
+    uuids = _normalize_item_uuids(item)
+    if not uuids:
+        return True
+    lookup = _ensure_uuid_lookup(rs)
+    # Remove stale mappings for this item that are no longer present.
+    for key, existing in list(lookup.items()):
+        if existing is item and key not in uuids:
+            lookup.pop(key, None)
+    for uid in uuids:
+        existing = lookup.get(uid)
+        if existing is not None and existing is not item:
+            return False
+    for uid in uuids:
+        lookup[uid] = item
+    return True
+
+
+def _unregister_item_uuids(rs: RoomState, item: Optional[Item]):
+    if not item:
+        return
+    lookup = _ensure_uuid_lookup(rs)
+    for key, existing in list(lookup.items()):
+        if existing is item:
+            lookup.pop(key, None)
+
+
+def _rebuild_item_uuid_lookup(rs: RoomState):
+    lookup = _ensure_uuid_lookup(rs)
+    lookup.clear()
+    for player in rs.players.values():
+        if not isinstance(player, Player):
+            continue
+        itm = getattr(player, 'currentItem', None)
+        if itm:
+            _register_item_uuids(rs, itm)
+    for itm in rs.items:
+        _register_item_uuids(rs, itm)
+
+
+def _clear_item_uuid_lookup(rs: RoomState):
+    lookup = _ensure_uuid_lookup(rs)
+    lookup.clear()
 
 
 def _ensure_cooking_registry(rs: RoomState) -> Dict[str, dict]:
@@ -573,7 +654,7 @@ def _clear_zone_cooking(rs: RoomState, zone: dict) -> bool:
     return True
 
 
-def _register_world_item(rs: RoomState, item: Item, *, assign_new_id: bool = False) -> Item:
+def _register_world_item(rs: RoomState, item: Item, *, assign_new_id: bool = False) -> Optional[Item]:
     lookup = _ensure_item_lookup(rs)
     if assign_new_id or item.id is None:
         item.id = rs.nextItemId
@@ -581,6 +662,8 @@ def _register_world_item(rs: RoomState, item: Item, *, assign_new_id: bool = Fal
     else:
         if item.id >= rs.nextItemId:
             rs.nextItemId = item.id + 1
+    if not _register_item_uuids(rs, item):
+        return None
     rs.items.append(item)
     lookup[item.id] = item
     return item
@@ -699,6 +782,10 @@ def _clear_world_items(rs: RoomState):
     rs.items.clear()
     lookup = _ensure_item_lookup(rs)
     lookup.clear()
+    _clear_item_uuid_lookup(rs)
+    for player in rs.players.values():
+        if isinstance(player, Player) and player.currentItem:
+            _register_item_uuids(rs, player.currentItem)
 
 
 def _apply_client_state(room: str, snapshot: dict):
@@ -730,6 +817,7 @@ def _apply_client_state(room: str, snapshot: dict):
         new_items.append(_item_from_snapshot(item, rs.nextItemId))
     rs.items = new_items
     _rebuild_item_lookup(rs)
+    _rebuild_item_uuid_lookup(rs)
 
     if snapshot.get('orders') is not None:
         orders = []
@@ -1087,8 +1175,11 @@ def _try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float)
             y=y,
             state=state,
             display=format_item_display(next_type, state),
+            uuids=[uuid.uuid4().hex],
         )
         rs.nextItemId += 1
+        if not _register_item_uuids(rs, new_itm):
+            continue
         player.currentItem = new_itm
         fg['nextFood'] = random.choice(food_choices) if food_choices else next_type
         return True
@@ -1114,6 +1205,8 @@ def _start_cooking_action(
         if not in_zone(x, y, zone):
             continue
         zone['occupied'] = True
+        source_item = _serialize_item(item)
+        _unregister_item_uuids(rs, item)
         player.currentItem = None
         player.cooking = False
         player.currentZone = None
@@ -1144,6 +1237,7 @@ def _start_cooking_action(
             'result_state': result_state,
             'result_display': result_display,
             'startedAt': time.time(),
+            'source_item': source_item,
         }
         zone['cooking'] = task
         _track_cooking_task(rs, zone, task)
@@ -1179,6 +1273,7 @@ def _try_deliver_item(rs: RoomState, player: Player, x: float, y: float) -> bool
     else:
         rs.score -= cfg.get('wrongOrderPenalty', 5)
     player.currentItem = None
+    _unregister_item_uuids(rs, item)
     return True
 
 
@@ -1216,6 +1311,12 @@ def _try_stack_combination(rs: RoomState, room: str, player: Player, item: Item)
         result_state = result.get('state') or default_item_state(result_type)
         _release_cooking_task_for_item(rs, room, other)
         _release_cooking_task_for_item(rs, room, item)
+        combined_uuids = _normalize_uuid_list(
+            list(getattr(other, 'uuids', []) or []) + list(getattr(item, 'uuids', []) or [])
+        )
+        _unregister_item_uuids(rs, item)
+        other.uuids = combined_uuids
+        _register_item_uuids(rs, other)
         other.type = result_type
         other.state = result_state
         other.display = format_item_display(result_type, result_state)
@@ -1238,7 +1339,11 @@ def _drop_item_to_world(rs: RoomState, room: str, player: Player, item: Item, x:
             item.x = dest.get('x', item.x)
             item.y = dest.get('y', item.y)
             break
-    _register_world_item(rs, item, assign_new_id=True)
+    placed = _register_world_item(rs, item, assign_new_id=True)
+    if not placed:
+        _register_item_uuids(rs, item)
+        player.currentItem = item
+        return
     player.currentItem = None
 
 
@@ -1265,6 +1370,7 @@ def initialize_room(room: str, config: dict = None):
             y=random.randint(50,550),
             state=state,
             display=format_item_display(item_type, state),
+            uuids=[uuid.uuid4().hex],
         )
         _register_world_item(rs, itm, assign_new_id=True)
 
@@ -1396,18 +1502,23 @@ def run_cooking_task(room: str, zone: dict, task: dict):
             dirty = True
 
         if result_item_id is None and progress >= 1.0:
-            cooked = Item(
-                id=0,
-                type=task['result_type'],
-                x=zone['x'],
-                y=zone['y'],
-                state=task['result_state'],
-            )
+            source_payload = task.get('source_item') or {}
+            cooked = _item_from_snapshot(source_payload, rs.nextItemId)
+            cooked.type = task['result_type']
+            cooked.state = task['result_state']
+            cooked.x = zone['x']
+            cooked.y = zone['y']
             display = task.get('result_display') or format_item_display(
                 task['result_type'], task['result_state']
             )
             cooked.display = display
-            _register_world_item(rs, cooked, assign_new_id=True)
+            registered = _register_world_item(rs, cooked, assign_new_id=True)
+            if not registered:
+                zone['occupied'] = False
+                dirty = True
+                continue
+
+            cooked = registered
 
             result_item_id = cooked.id
             current['result_item_id'] = result_item_id
@@ -1428,6 +1539,7 @@ def run_cooking_task(room: str, zone: dict, task: dict):
             if burn_threshold and burn_threshold > 0.0 and elapsed >= burn_threshold:
                 removed = _remove_world_item(rs, result_item_id, room=room)
                 if removed:
+                    _unregister_item_uuids(rs, removed)
                     current['displayText'] = '消し炭になってしまった！'
                     current['progress'] = 0.0
                     current['remaining'] = 0.0

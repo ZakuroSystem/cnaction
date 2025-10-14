@@ -682,7 +682,32 @@ function cloneItem(item) {
     y: item.y,
     state: item.state,
     display: item.display,
+    uuids: normalizeItemUuids(item.uuids),
   };
+}
+
+function normalizeItemUuids(raw) {
+  if (typeof raw === 'string') {
+    raw = [raw];
+  }
+  const result = [];
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      if (result.includes(trimmed)) continue;
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
+function generateItemUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `itm-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function matchRequirement(type, state, requirement) {
@@ -824,6 +849,7 @@ export class LocalSimulator {
     this.runtime = buildRuntimeMetadata({});
     this.configRevision = 0;
     this.itemLookup = new Map();
+    this.uuidLookup = new Map();
   }
 
   hasState() {
@@ -849,18 +875,85 @@ export class LocalSimulator {
     return this.itemLookup;
   }
 
+  ensureUuidLookup() {
+    if (!(this.uuidLookup instanceof Map)) {
+      this.uuidLookup = new Map();
+    }
+    return this.uuidLookup;
+  }
+
   rebuildItemLookup() {
     this.itemLookup = buildItemLookup(this.state?.items);
+    this.rebuildItemUuidLookup();
+  }
+
+  rebuildItemUuidLookup() {
+    const lookup = this.ensureUuidLookup();
+    lookup.clear();
+    if (!this.state) {
+      return;
+    }
+    Object.values(this.state.players || {}).forEach((player) => {
+      if (player?.currentItem) {
+        this.registerItemUuids(player.currentItem);
+      }
+    });
+    (this.state.items || []).forEach((item) => {
+      this.registerItemUuids(item);
+    });
+  }
+
+  registerItemUuids(item) {
+    if (!item) return true;
+    item.uuids = normalizeItemUuids(item.uuids);
+    if (!item.uuids.length) {
+      return true;
+    }
+    const lookup = this.ensureUuidLookup();
+    for (const [key, existing] of Array.from(lookup.entries())) {
+      if (existing === item && !item.uuids.includes(key)) {
+        lookup.delete(key);
+      }
+    }
+    for (const uid of item.uuids) {
+      const existing = lookup.get(uid);
+      if (existing && existing !== item) {
+        return false;
+      }
+    }
+    for (const uid of item.uuids) {
+      lookup.set(uid, item);
+    }
+    return true;
+  }
+
+  unregisterItemUuids(item) {
+    if (!item) return;
+    const lookup = this.ensureUuidLookup();
+    for (const [key, existing] of Array.from(lookup.entries())) {
+      if (existing === item) {
+        lookup.delete(key);
+      }
+    }
   }
 
   registerWorldItem(item, assignNewId = false) {
     if (!this.state) return null;
-    const worldItem = { ...item };
+    const worldItem = {
+      ...item,
+      uuids: normalizeItemUuids(item?.uuids),
+    };
+    if (item) {
+      this.unregisterItemUuids(item);
+    }
     if (assignNewId || !Number.isFinite(worldItem.id)) {
       worldItem.id = this.state.nextItemId;
       this.state.nextItemId += 1;
     } else if (worldItem.id >= this.state.nextItemId) {
       this.state.nextItemId = worldItem.id + 1;
+    }
+    if (!this.registerItemUuids(worldItem)) {
+      return null;
     }
     this.state.items.push(worldItem);
     this.ensureItemLookup().set(worldItem.id, worldItem);
@@ -1284,13 +1377,15 @@ export class LocalSimulator {
 
       if (!info.resultItemId && progress >= 1) {
         const display = task.result_display || formatItemDisplay(task.result_type, task.result_state);
+        const source = task.source_item || {};
         const worldItem = this.registerWorldItem({
-          id: 0,
+          id: Number.isFinite(source.id) ? source.id : 0,
           type: task.result_type,
           x: zone.x,
           y: zone.y,
           state: task.result_state,
           display,
+          uuids: normalizeItemUuids(source.uuids),
         }, true);
         zone.occupied = false;
         if (!worldItem) {
@@ -1328,6 +1423,7 @@ export class LocalSimulator {
           if (!removed) {
             continue;
           }
+          this.unregisterItemUuids(removed);
           task.displayText = '消し炭になってしまった！';
           task.progress = 0;
           task.remaining = 0;
@@ -1426,7 +1522,15 @@ export class LocalSimulator {
     if (!removed) {
       return false;
     }
-    player.currentItem = { ...removed };
+    this.unregisterItemUuids(removed);
+    const carried = {
+      ...removed,
+      uuids: normalizeItemUuids(removed.uuids),
+    };
+    if (!this.registerItemUuids(carried)) {
+      return false;
+    }
+    player.currentItem = carried;
     return true;
   }
 
@@ -1456,8 +1560,12 @@ export class LocalSimulator {
         y,
         state,
         display: formatItemDisplay(wanted, state),
+        uuids: [generateItemUuid()],
       };
       this.state.nextItemId += 1;
+      if (!this.registerItemUuids(newItem)) {
+        continue;
+      }
       player.currentItem = newItem;
       generator.nextFood = randomChoice(choices) || wanted;
       return true;
@@ -1522,6 +1630,8 @@ export class LocalSimulator {
         continue;
       }
       zone.occupied = true;
+      const sourceItem = cloneItem(item);
+      this.unregisterItemUuids(item);
       player.currentItem = null;
       player.cooking = false;
       player.currentZone = null;
@@ -1545,6 +1655,7 @@ export class LocalSimulator {
         result_state: actionInfo.resultState,
         result_display: formatItemDisplay(actionInfo.resultType, actionInfo.resultState),
         startedAt: nowSeconds(),
+        source_item: sourceItem,
       };
       zone.cooking = task;
       this.cookingTasks.set(id, {
@@ -1584,6 +1695,7 @@ export class LocalSimulator {
       const penalty = Number(this.state.config?.wrongOrderPenalty) || 5;
       this.state.score -= penalty;
     }
+    this.unregisterItemUuids(item);
     player.currentItem = null;
     return true;
   }
@@ -1632,6 +1744,13 @@ export class LocalSimulator {
       const otherState = other.state || null;
       this.clearCookingTaskForItem(otherId, otherType, otherState);
       this.clearCookingTaskForItem(itemId, itemType, itemState);
+      const mergedUuids = normalizeItemUuids([
+        ...(other.uuids || []),
+        ...(item.uuids || []),
+      ]);
+      this.unregisterItemUuids(item);
+      other.uuids = mergedUuids;
+      this.registerItemUuids(other);
       other.type = resultType;
       other.state = resultState;
       other.display = formatItemDisplay(resultType, resultState);
@@ -1649,7 +1768,11 @@ export class LocalSimulator {
         break;
       }
     }
-    this.registerWorldItem(item, true);
+    const worldItem = this.registerWorldItem(item, true);
+    if (!worldItem) {
+      this.registerItemUuids(item);
+      return;
+    }
     player.currentItem = null;
   }
 
