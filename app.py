@@ -404,6 +404,15 @@ def refresh_orders_metadata(rs: RoomState):
 def assign_room_config(rs: RoomState, cfg: dict, revision: Optional[int] = None):
     rs.config = cfg
     rs.runtime = build_runtime_metadata(cfg)
+    registry = _ensure_cooking_registry(rs)
+    registry.clear()
+    for zone in cfg.get('actionZones') or []:
+        if not isinstance(zone, dict):
+            continue
+        cooking = zone.get('cooking')
+        zone['occupied'] = bool(cooking)
+        if isinstance(cooking, dict) and cooking.get('id'):
+            registry[cooking['id']] = {'zone': zone, 'task': cooking}
     if revision is not None:
         try:
             rs.configRevision = int(revision)
@@ -533,6 +542,37 @@ def _ensure_item_lookup(rs: RoomState) -> Dict[int, Item]:
     return lookup
 
 
+def _ensure_cooking_registry(rs: RoomState) -> Dict[str, dict]:
+    registry = getattr(rs, 'cooking_tasks', None)
+    if registry is None:
+        registry = {}
+        rs.cooking_tasks = registry
+    return registry
+
+
+def _track_cooking_task(rs: RoomState, zone: dict, task: dict):
+    registry = _ensure_cooking_registry(rs)
+    registry[task.get('id')] = {'zone': zone, 'task': task}
+
+
+def _untrack_cooking_task(rs: RoomState, task_id):
+    if not task_id:
+        return
+    registry = _ensure_cooking_registry(rs)
+    registry.pop(task_id, None)
+
+
+def _clear_zone_cooking(rs: RoomState, zone: dict) -> bool:
+    if not isinstance(zone, dict):
+        return False
+    cooking = zone.pop('cooking', None)
+    zone['occupied'] = False
+    if not cooking:
+        return False
+    _untrack_cooking_task(rs, cooking.get('id'))
+    return True
+
+
 def _register_world_item(rs: RoomState, item: Item, *, assign_new_id: bool = False) -> Item:
     lookup = _ensure_item_lookup(rs)
     if assign_new_id or item.id is None:
@@ -551,6 +591,7 @@ def _remove_world_item(
     target,
     *,
     clear_cooking: bool = False,
+    room: Optional[str] = None,
 ) -> Optional[Item]:
     lookup = _ensure_item_lookup(rs)
     item: Optional[Item]
@@ -566,7 +607,9 @@ def _remove_world_item(
         item = lookup.get(item_id) if item_id is not None else None
     if not item:
         if clear_cooking and item_id is not None:
-            _clear_cooking_task_for_item(rs, item_id)
+            cleared = _clear_cooking_task_for_item(rs, item_id)
+            if cleared and room:
+                mark_dirty(room)
         return None
     lookup.pop(item.id, None)
     try:
@@ -574,12 +617,14 @@ def _remove_world_item(
     except ValueError:
         rs.items[:] = [itm for itm in rs.items if itm.id != item.id]
     if clear_cooking:
-        _clear_cooking_task_for_item(
+        cleared = _clear_cooking_task_for_item(
             rs,
             getattr(item, 'id', None),
             getattr(item, 'type', None),
             getattr(item, 'state', None),
         )
+        if cleared and room:
+            mark_dirty(room)
     return item
 
 
@@ -620,9 +665,8 @@ def _clear_cooking_task_for_item(
                         matches_item = True
         if not matches_item:
             continue
-        zone.pop('cooking', None)
-        zone['occupied'] = False
-        cleared = True
+        if _clear_zone_cooking(rs, zone):
+            cleared = True
     return cleared
 
 
@@ -920,6 +964,266 @@ def apply_player_move(state: RoomState, player: Player, target_x: float, target_
     return moved, obstacles_moved
 
 
+def _resolve_cooking_action(rs: RoomState, item: Optional[Item]) -> Optional[dict]:
+    if not item:
+        return None
+    cfg = rs.config or {}
+    runtime = getattr(rs, 'runtime', {})
+    recipe = find_cooking_recipe(runtime.get('cooking_lookup'), item.type, item.state)
+    if not recipe:
+        recipes = cfg.get('cookingRecipes') or default_cooking_recipes()
+        for candidate in recipes or []:
+            if not isinstance(candidate, dict) or candidate.get('type') != item.type:
+                continue
+            from_state = candidate.get('from')
+            if from_state and from_state != item.state:
+                continue
+            action = candidate.get('action')
+            result_state = candidate.get('to', item.state)
+            if not action or result_state is None:
+                continue
+            recipe = candidate
+            break
+    if not recipe:
+        return None
+    action_needed = recipe.get('action')
+    result_state = recipe.get('to', item.state)
+    if not action_needed or result_state is None:
+        return None
+    result_type = recipe.get('resultType', item.type)
+    if result_type is None:
+        result_type = item.type
+    if action_needed == 'cut':
+        default_duration = cfg.get('cutDuration', DEFAULT_CUT_DURATION)
+    else:
+        default_duration = cfg.get('bakeDuration', DEFAULT_BAKE_DURATION)
+    try:
+        duration = float(recipe.get('duration'))
+    except (TypeError, ValueError):
+        duration = None
+    if not duration or duration <= 0:
+        try:
+            duration = float(default_duration)
+        except (TypeError, ValueError):
+            duration = DEFAULT_CUT_DURATION if action_needed == 'cut' else DEFAULT_BAKE_DURATION
+    return {
+        'action': action_needed,
+        'result_state': result_state if result_state is not None else item.state,
+        'result_type': result_type,
+        'duration': max(duration, 0.1),
+        'display': recipe.get('display'),
+    }
+
+
+def _release_cooking_task_for_item(rs: RoomState, room: Optional[str], item: Optional[Item]) -> bool:
+    if not item:
+        return False
+    item_id = getattr(item, 'id', None)
+    if not isinstance(item_id, int):
+        item_id = None
+    cleared = _clear_cooking_task_for_item(
+        rs,
+        item_id,
+        getattr(item, 'type', None),
+        getattr(item, 'state', None),
+    )
+    if cleared and room:
+        mark_dirty(room)
+    return cleared
+
+
+def _try_pickup_world_item(rs: RoomState, room: str, player: Player, x: float, y: float) -> bool:
+    pickup_radius_sq = 50 * 50
+    for itm in list(rs.items):
+        dx = itm.x - x
+        dy = itm.y - y
+        if dx * dx + dy * dy >= pickup_radius_sq:
+            continue
+        removed = _remove_world_item(rs, itm, clear_cooking=True, room=room)
+        if not removed:
+            continue
+        player.currentItem = removed
+        return True
+    return False
+
+
+def _try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float) -> bool:
+    cfg = rs.config or {}
+    generators = cfg.get('foodGenerators', [])
+    if not generators:
+        return False
+    food_choices = ingredient_types()
+    if not food_choices:
+        return False
+    for fg in generators:
+        if not in_zone(x, y, fg):
+            continue
+        next_type = fg.get('nextFood') if fg.get('nextFood') in food_choices else random.choice(food_choices)
+        if not next_type:
+            continue
+        state = default_item_state(next_type)
+        new_itm = Item(
+            id=rs.nextItemId,
+            type=next_type,
+            x=x,
+            y=y,
+            state=state,
+            display=format_item_display(next_type, state),
+        )
+        rs.nextItemId += 1
+        player.currentItem = new_itm
+        fg['nextFood'] = random.choice(food_choices) if food_choices else next_type
+        return True
+    return False
+
+
+def _start_cooking_action(
+    room: str,
+    rs: RoomState,
+    player: Player,
+    x: float,
+    y: float,
+    item: Item,
+    action: dict,
+) -> bool:
+    if not action:
+        return False
+    cfg = rs.config or {}
+    zones = cfg.get('actionZones', [])
+    for zone in zones:
+        if zone.get('action') != action['action'] or zone.get('occupied'):
+            continue
+        if not in_zone(x, y, zone):
+            continue
+        zone['occupied'] = True
+        player.currentItem = None
+        player.cooking = False
+        player.currentZone = None
+        player.image = player.base_image
+        duration_val = action.get('duration') or (
+            cfg['cutDuration'] if action['action'] == 'cut' else cfg['bakeDuration']
+        )
+        try:
+            duration_val = float(duration_val)
+        except (TypeError, ValueError):
+            duration_val = DEFAULT_CUT_DURATION if action['action'] == 'cut' else DEFAULT_BAKE_DURATION
+        duration_val = max(duration_val, 0.1)
+        texture_key = f"{item.type}:{item.state}" if item.type and item.state else item.type
+        result_type = action.get('result_type') or action.get('resultType') or item.type
+        result_state = action.get('result_state') or action.get('resultState') or item.state
+        result_display = format_item_display(result_type, result_state)
+        task = {
+            'id': uuid.uuid4().hex,
+            'progress': 0.0,
+            'duration': duration_val,
+            'texture': texture_key,
+            'itemType': getattr(item, 'type', None),
+            'item_state': getattr(item, 'state', None),
+            'displayText': action.get('display')
+            or zone.get('display')
+            or ('切っている…' if action['action'] == 'cut' else '焼いている…'),
+            'result_type': result_type,
+            'result_state': result_state,
+            'result_display': result_display,
+            'startedAt': time.time(),
+        }
+        zone['cooking'] = task
+        _track_cooking_task(rs, zone, task)
+        socketio.start_background_task(run_cooking_task, room, zone, task)
+        return True
+    return False
+
+
+def _try_deliver_item(rs: RoomState, player: Player, x: float, y: float) -> bool:
+    item = player.currentItem
+    if not item:
+        return False
+    cfg = rs.config or {}
+    delivery_zone = cfg.get('deliveryZone')
+    if not delivery_zone or not in_zone(x, y, delivery_zone):
+        return False
+    mapping = cfg.get('orderMapping', {})
+    delivered = mapping.get(item.type)
+    if not delivered:
+        return False
+    if item.type.startswith('dish_'):
+        expected_state = default_item_state(item.type)
+    else:
+        expected_state = 'cooked'
+    if expected_state and item.state != expected_state:
+        return False
+    expected = rs.orders[0]['dish'] if rs.orders else None
+    if delivered == expected:
+        rs.score += 10
+        if rs.orders:
+            rs.orders.pop(0)
+        rs.orders.append(build_order(cfg, rs.runtime))
+    else:
+        rs.score -= cfg.get('wrongOrderPenalty', 5)
+    player.currentItem = None
+    return True
+
+
+def _try_stack_combination(rs: RoomState, room: str, player: Player, item: Item) -> bool:
+    runtime = getattr(rs, 'runtime', {})
+    stack_tolerance = PLAYER_RADIUS + 8
+    for other in rs.items:
+        if other is item:
+            continue
+        dx = other.x - item.x
+        dy = other.y - item.y
+        if abs(dx) > stack_tolerance or abs(dy) > stack_tolerance:
+            continue
+        recipe = find_combination_recipe_from_index(
+            runtime.get('combination_index'),
+            item.type,
+            item.state,
+            other.type,
+            other.state,
+        )
+        if not recipe:
+            recipe = find_combination_recipe(
+                rs.config.get('combinationRecipes'),
+                item.type,
+                item.state,
+                other.type,
+                other.state,
+            )
+        if not recipe:
+            continue
+        result = recipe.get('result') or {}
+        result_type = result.get('type')
+        if not result_type:
+            continue
+        result_state = result.get('state') or default_item_state(result_type)
+        _release_cooking_task_for_item(rs, room, other)
+        _release_cooking_task_for_item(rs, room, item)
+        other.type = result_type
+        other.state = result_state
+        other.display = format_item_display(result_type, result_state)
+        player.currentItem = None
+        return True
+    return False
+
+
+def _drop_item_to_world(rs: RoomState, room: str, player: Player, item: Item, x: float, y: float):
+    item.x = x
+    item.y = y
+    item.display = format_item_display(item.type, item.state)
+    _release_cooking_task_for_item(rs, room, item)
+    for tr in rs.config.get('transferObjects', []):
+        src = tr.get('sourceZone')
+        dest = tr.get('destination')
+        if not src or not dest:
+            continue
+        if in_zone(x, y, src):
+            item.x = dest.get('x', item.x)
+            item.y = dest.get('y', item.y)
+            break
+    _register_world_item(rs, item, assign_new_id=True)
+    player.currentItem = None
+
+
 def initialize_room(room: str, config: dict = None):
     cfg = sanitize_config(config or get_default_config())
     if isinstance(cfg.get('transferObjects'), str):
@@ -1006,8 +1310,9 @@ def reset_room():
     rs = rooms[room]
     cfg = rs.config
     for zone in cfg.get('actionZones', []):
-        zone['occupied'] = False
-        zone.pop('cooking', None)
+        if not _clear_zone_cooking(rs, zone):
+            zone['occupied'] = False
+    _ensure_cooking_registry(rs).clear()
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.score = 0
     rs.gameOver = False
@@ -1036,9 +1341,13 @@ def run_cooking_task(room: str, zone: dict, task: dict):
     task['startedAt'] = start
     task['duration'] = duration
 
-    result_item_id = None
-    burned = False
-    burn_display_at: Optional[float] = None
+    raw_result = task.get('result_item_id')
+    try:
+        result_item_id = int(raw_result)
+    except (TypeError, ValueError):
+        result_item_id = None
+    burned = bool(task.get('burned'))
+    burn_display_at: Optional[float] = task.get('burnedAt') if burned else None
 
     while True:
         socketio.sleep(0.1)
@@ -1048,6 +1357,7 @@ def run_cooking_task(room: str, zone: dict, task: dict):
         rs = rooms[room]
         current = zone.get('cooking')
         if not current or current.get('id') != task['id']:
+            _untrack_cooking_task(rs, task.get('id'))
             return
 
         now = time.time()
@@ -1091,13 +1401,12 @@ def run_cooking_task(room: str, zone: dict, task: dict):
 
         if result_item_id is not None and not burned:
             if result_item_id not in rs.item_lookup:
-                if zone.get('cooking', {}).get('id') == task['id']:
-                    zone.pop('cooking', None)
+                if _clear_zone_cooking(rs, zone):
                     mark_dirty(room)
                 return
 
             if burn_threshold and burn_threshold > 0.0 and elapsed >= burn_threshold:
-                removed = _remove_world_item(rs, result_item_id)
+                removed = _remove_world_item(rs, result_item_id, room=room)
                 if removed:
                     current['displayText'] = '消し炭になってしまった！'
                     current['progress'] = 0.0
@@ -1110,9 +1419,8 @@ def run_cooking_task(room: str, zone: dict, task: dict):
 
         if burned:
             if burn_display_at and (now - burn_display_at) >= 1.5:
-                if zone.get('cooking', {}).get('id') == task['id']:
-                    zone.pop('cooking', None)
-                mark_dirty(room)
+                if _clear_zone_cooking(rs, zone):
+                    mark_dirty(room)
                 return
 
         if dirty:
@@ -1201,9 +1509,6 @@ def on_interact(data):
         }
         socketio.emit('client_interact', payload, room=room)
         return
-    cfg = rs.config
-    runtime = getattr(rs, 'runtime', {})
-
     x, y = p.x, p.y
     position_updated = False
     if 'x' in data and 'y' in data:
@@ -1218,239 +1523,35 @@ def on_interact(data):
             x, y = p.x, p.y
             position_updated = moved or obstacles_moved
 
-    # アイテム取得 or 生成
     if p.currentItem is None:
-        pickup_radius_sq = 50 * 50
-        for itm in list(rs.items):
-            dx = itm.x - x
-            dy = itm.y - y
-            if dx * dx + dy * dy < pickup_radius_sq:
-                removed = _remove_world_item(rs, itm, clear_cooking=True)
-                if removed:
-                    p.currentItem = removed
-                else:
-                    p.currentItem = itm
-                mark_dirty(room)
-                return
-        food_choices = ingredient_types()
-        for fg in cfg.get('foodGenerators', []):
-            if not in_zone(x, y, fg):
-                continue
-            if not food_choices:
-                continue
-            next_type = fg.get('nextFood') if fg.get('nextFood') in food_choices else random.choice(food_choices)
-            state = default_item_state(next_type)
-            new_itm = Item(
-                id=rs.nextItemId,
-                type=next_type,
-                x=x,
-                y=y,
-                state=state,
-                display=format_item_display(next_type, state),
-            )
-            rs.nextItemId += 1
-            p.currentItem = new_itm
-            if food_choices:
-                fg['nextFood'] = random.choice(food_choices)
+        if _try_pickup_world_item(rs, room, p, x, y):
+            mark_dirty(room)
+            return
+        if _try_spawn_from_generator(rs, p, x, y):
             mark_dirty(room)
             return
         if position_updated:
             mark_dirty(room)
         return
 
-    # 調理ステップ
-    itm = p.currentItem
-    action_needed = None
-    result_state = itm.state
-    result_type = itm.type
-    duration = None
-    display_override = None
-    recipe = find_cooking_recipe(runtime.get('cooking_lookup'), itm.type, itm.state)
-    if not recipe:
-        for candidate in cfg.get('cookingRecipes', []) or []:
-            if not isinstance(candidate, dict):
-                continue
-            if candidate.get('type') != itm.type:
-                continue
-            from_state = candidate.get('from')
-            if from_state and from_state != itm.state:
-                continue
-            action = candidate.get('action')
-            if not action:
-                continue
-            to_state = candidate.get('to', itm.state)
-            if to_state is None:
-                continue
-            recipe = candidate
-            break
-
-    if recipe:
-        action_needed = recipe.get('action')
-        result_state = recipe.get('to', itm.state)
-        if result_state is None:
-            result_state = itm.state
-        result_type = recipe.get('resultType', itm.type)
-        duration = recipe.get('duration')
-        display_override = recipe.get('display')
-
-    if action_needed:
-        for zone in cfg.get('actionZones', []):
-            if zone.get('action') != action_needed or zone.get('occupied'):
-                continue
-            if not in_zone(x, y, zone):
-                continue
-            zone['occupied'] = True
-            p.currentItem = None
-            p.cooking = False
-            p.currentZone = None
-            p.image = p.base_image
-
-            try:
-                duration_val = float(duration or 0)
-            except (TypeError, ValueError):
-                duration_val = cfg['cutDuration'] if action_needed == 'cut' else cfg['bakeDuration']
-            if duration_val <= 0:
-                duration_val = cfg['cutDuration'] if action_needed == 'cut' else cfg['bakeDuration']
-
-            cooking_id = uuid.uuid4().hex
-            display_text = display_override or zone.get('display') or (
-                '切っている…' if action_needed == 'cut' else '焼いている…'
-            )
-            source_type = getattr(itm, 'type', None)
-            source_state = getattr(itm, 'state', None)
-            if source_type and source_state:
-                texture_key = f"{source_type}:{source_state}"
-            else:
-                texture_key = source_type
-            task = {
-                'id': cooking_id,
-                'progress': 0.0,
-                'duration': duration_val,
-                'texture': texture_key,
-                'itemType': source_type,
-                'item_state': source_state,
-                'displayText': display_text,
-                'result_type': result_type,
-                'result_state': result_state,
-                'result_display': format_item_display(result_type, result_state),
-                'startedAt': time.time(),
-            }
-            zone['cooking'] = task
-
-            socketio.start_background_task(
-                run_cooking_task, room, zone, task
-            )
-            mark_dirty(room)
-            return
-
-    # 配膳
-    delivery_zone = cfg.get('deliveryZone')
-    if delivery_zone and in_zone(x, y, delivery_zone):
-        mapping = cfg.get('orderMapping', {})
-        delivered = mapping.get(itm.type)
-        if not delivered:
-            if position_updated:
-                mark_dirty(room)
-            return
-        expected_state = None
-        if itm.type.startswith('dish_'):
-            expected_state = default_item_state(itm.type)
-        else:
-            expected_state = 'cooked'
-        if expected_state and itm.state != expected_state:
-            if position_updated:
-                mark_dirty(room)
-            return
-        expected = rs.orders[0]['dish'] if rs.orders else None
-        if delivered == expected:
-            rs.score += 10
-            rs.orders.pop(0)
-            rs.orders.append(build_order(cfg, rs.runtime))
-        else:
-            rs.score -= cfg.get('wrongOrderPenalty', 5)
-        p.currentItem = None
+    item = p.currentItem
+    action_info = _resolve_cooking_action(rs, item)
+    if action_info and _start_cooking_action(room, rs, p, x, y, item, action_info):
         mark_dirty(room)
         return
 
-    # 置く or 転送
-    itm.x, itm.y = x, y
-    itm.display = format_item_display(itm.type, itm.state)
-
-    source_item_id = getattr(itm, 'id', None)
-    source_item_type = getattr(itm, 'type', None)
-    source_item_state = getattr(itm, 'state', None)
-    _clear_cooking_task_for_item(
-        rs,
-        source_item_id if isinstance(source_item_id, int) else None,
-        source_item_type,
-        source_item_state,
-    )
-
-    stack_tolerance = PLAYER_RADIUS + 8
-    for other in rs.items:
-        if other is itm:
-            continue
-        dx = other.x - itm.x
-        dy = other.y - itm.y
-        if abs(dx) > stack_tolerance or abs(dy) > stack_tolerance:
-            continue
-        recipe = find_combination_recipe_from_index(
-            runtime.get('combination_index'),
-            itm.type,
-            itm.state,
-            other.type,
-            other.state,
-        )
-        if not recipe:
-            recipe = find_combination_recipe(
-                cfg.get('combinationRecipes'),
-                itm.type,
-                itm.state,
-                other.type,
-                other.state,
-            )
-        if not recipe:
-            continue
-        result = recipe.get('result') or {}
-        result_type = result.get('type')
-        if not result_type:
-            continue
-        result_state = result.get('state') or default_item_state(result_type)
-        other_original_type = getattr(other, 'type', None)
-        other_original_state = getattr(other, 'state', None)
-        other_id = getattr(other, 'id', None)
-
-        _clear_cooking_task_for_item(
-            rs,
-            other_id if isinstance(other_id, int) else None,
-            other_original_type,
-            other_original_state,
-        )
-        _clear_cooking_task_for_item(
-            rs,
-            source_item_id if isinstance(source_item_id, int) else None,
-            source_item_type,
-            source_item_state,
-        )
-
-        other.type = result_type
-        other.state = result_state
-        other.display = format_item_display(result_type, result_state)
-        p.currentItem = None
+    if _try_deliver_item(rs, p, x, y):
         mark_dirty(room)
         return
 
-    for tr in cfg.get('transferObjects', []):
-        src = tr.get('sourceZone')
-        dest = tr.get('destination')
-        if not src or not dest:
-            continue
-        if in_zone(x, y, src):
-            itm.x = dest.get('x', itm.x)
-            itm.y = dest.get('y', itm.y)
-            break
-    _register_world_item(rs, itm, assign_new_id=True)
-    p.currentItem = None
+    item.x = x
+    item.y = y
+
+    if _try_stack_combination(rs, room, p, item):
+        mark_dirty(room)
+        return
+
+    _drop_item_to_world(rs, room, p, item, x, y)
     mark_dirty(room)
 
 
