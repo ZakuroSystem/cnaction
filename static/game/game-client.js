@@ -121,16 +121,19 @@ export class GameClient {
   handleStateUpdate(state) {
     const cloned = this.cloneState(state);
     this.serverState = cloned;
+    const isClientManaged = Boolean(state?.clientManaged);
     if (state.players && window.playerId && state.players[window.playerId]) {
       const me = state.players[window.playerId];
       if (!this.localPosition) {
         this.localPosition = { x: me.x, y: me.y };
       } else if (!this.isHost) {
-        const dx = this.localPosition.x - me.x;
-        const dy = this.localPosition.y - me.y;
-        if (dx * dx + dy * dy > 36) {
-          this.localPosition.x = me.x;
-          this.localPosition.y = me.y;
+        if (!isClientManaged) {
+          const dx = this.localPosition.x - me.x;
+          const dy = this.localPosition.y - me.y;
+          if (dx * dx + dy * dy > 36) {
+            this.localPosition.x = me.x;
+            this.localPosition.y = me.y;
+          }
         }
       }
       if (!this.lastSentPosition && this.localPosition) {
