@@ -166,7 +166,7 @@ def flush_dirty():
         dirty_flags.pop(room, None)
 
 
-def schedule_flush(delay: float = 1 / 30):
+def schedule_flush(delay: float = 1 / 20):
     global _flush_pending
     with _flush_lock:
         if _flush_pending:
@@ -1091,6 +1091,8 @@ def reset_room(room: str) -> bool:
         rs.gameOver = False
         rs.orders = [build_order(cfg, rs.runtime) for _ in range(3)]
         rs.resetScheduled = False
+        rs.hostId = ''
+        rs.clientManaged = False
     refresh_orders_metadata(rs)
     mark_dirty(room)
     return True
@@ -1105,6 +1107,8 @@ def initialize_room(room: str, config: dict = None):
     assign_room_config(rs, cfg)
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.orders = [build_order(cfg, rs.runtime) for _ in range(3)]
+    rs.clientManaged = False
+    rs.hostId = ''
 
     item_choices = ingredient_types()
     for _ in range(3):
