@@ -321,7 +321,7 @@ def _settlement_is_open(settlement) -> bool:
     if not isinstance(settlement, dict):
         return False
     status = settlement.get('status')
-    if status in ('captured', 'voided'):
+    if status in ('captured', 'voided', 'settled'):
         return False
     return True
 
