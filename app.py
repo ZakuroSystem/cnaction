@@ -183,13 +183,10 @@ def on_join(data):
     pid = f"player{len(rs.players)+1}"
     rs.players[pid] = Player(base_image=pid, image=pid)
     game.sid_to_player[request.sid] = (room, pid)
-    is_host = False
-    if not rs.hostId:
-        rs.hostId = pid
-        rs.clientManaged = True
-        is_host = True
+    rs.hostId = ''
+    rs.clientManaged = False
     game.mark_dirty(room)
-    return {'playerId': pid, 'isHost': is_host, 'clientManaged': rs.clientManaged}
+    return {'playerId': pid, 'isHost': False, 'clientManaged': rs.clientManaged}
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -308,6 +305,8 @@ def on_client_state(data):
     if room not in game.rooms or pid not in game.rooms[room].players:
         return
     rs = game.rooms[room]
+    if not rs.clientManaged:
+        return
     if rs.hostId and rs.hostId != pid:
         return
     snapshot = data.get('state')
