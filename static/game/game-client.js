@@ -464,7 +464,7 @@ export class GameClient {
   maybeSendMove(moving) {
     if (!this.localPosition || !window.roomName || !window.playerId) return;
     const now = performance.now();
-    const targetInterval = moving ? 50 : 150;
+    const targetInterval = 50;
     const shouldSendByTime = now - this.lastMoveSent > targetInterval;
     let shouldSendByDistance = false;
     if (this.lastSentPosition) {
