@@ -47,6 +47,7 @@ export class GameClient {
     this.lastAckedMove = 0;
     this.remoteMoveSequences = new Map();
     this.lastServerTime = 0;
+    this.pendingMoves = [];
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -63,6 +64,9 @@ export class GameClient {
     this.moveSequence = 0;
     this.lastAckedMove = 0;
     this.lastServerTime = 0;
+    this.localPosition = null;
+    this.lastSentPosition = null;
+    this.clearPendingMoves();
     if (this.remoteMoveSequences) {
       this.remoteMoveSequences.clear();
     }
@@ -114,6 +118,7 @@ export class GameClient {
     this.moveSequence = 0;
     this.lastAckedMove = 0;
     this.lastServerTime = 0;
+    this.clearPendingMoves();
     if (this.remoteMoveSequences) {
       this.remoteMoveSequences.clear();
     }
@@ -148,14 +153,18 @@ export class GameClient {
         if (!(hasServerTime && serverTime > previousServerTime)) {
           return;
         }
+        this.clearPendingMoves();
       }
       this.lastAckedMove = ackSeq;
+    } else if (hasServerTime && serverTime > previousServerTime) {
+      this.clearPendingMoves();
     }
     if (hasServerTime && serverTime >= previousServerTime) {
       this.lastServerTime = serverTime;
     }
     const cloned = this.cloneState(state);
     this.serverState = cloned;
+    this.reconcileLocalPrediction(cloned, Number.isFinite(ackSeq) ? ackSeq : null);
     const isClientManaged = Boolean(state?.clientManaged);
     if (state.players && window.playerId && state.players[window.playerId]) {
       const me = state.players[window.playerId];
@@ -208,6 +217,75 @@ export class GameClient {
           this.remoteMoveSequences.set(pid, seq);
         }
       });
+    }
+  }
+
+  clearPendingMoves() {
+    if (Array.isArray(this.pendingMoves)) {
+      this.pendingMoves.length = 0;
+    } else {
+      this.pendingMoves = [];
+    }
+  }
+
+  reconcileLocalPrediction(state, ackSeq) {
+    if (this.isHost || !state || !window.playerId) {
+      return;
+    }
+    const players = state.players || {};
+    const me = players[window.playerId];
+    if (!me) {
+      return;
+    }
+    if (!Array.isArray(this.pendingMoves)) {
+      this.pendingMoves = [];
+    }
+    if (!this.localPosition) {
+      if (Number.isFinite(me.x) && Number.isFinite(me.y)) {
+        this.localPosition = { x: me.x, y: me.y };
+        this.lastSentPosition = { x: me.x, y: me.y };
+      }
+      return;
+    }
+
+    if (Number.isFinite(ackSeq)) {
+      this.pendingMoves = this.pendingMoves.filter((move) => move && move.seq > ackSeq);
+    }
+
+    let targetX = Number(me.x);
+    let targetY = Number(me.y);
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+      return;
+    }
+
+    if (this.pendingMoves.length) {
+      const simPlayer = this.clonePlayer(me) || { x: targetX, y: targetY };
+      const simState = { config: state.config || null };
+      for (const move of this.pendingMoves) {
+        if (!move) continue;
+        const mx = Number(move.x);
+        const my = Number(move.y);
+        if (!Number.isFinite(mx) || !Number.isFinite(my)) continue;
+        resolvePlayerMovement(simState, simPlayer, mx, my);
+      }
+      targetX = simPlayer.x;
+      targetY = simPlayer.y;
+    } else if (Number.isFinite(ackSeq)) {
+      this.lastSentPosition = { x: targetX, y: targetY };
+    }
+
+    this.applyReconciledPosition(targetX, targetY);
+  }
+
+  applyReconciledPosition(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    if (!this.localPosition) {
+      this.localPosition = { x, y };
+    } else {
+      this.localPosition.x = x;
+      this.localPosition.y = y;
     }
   }
 
@@ -552,6 +630,7 @@ export class GameClient {
     this.lastSentPosition = { x: this.localPosition.x, y: this.localPosition.y };
     this.moveSequence += 1;
     const seq = this.moveSequence;
+    this.recordPendingMove(seq, this.localPosition.x, this.localPosition.y);
     this.socket.emit('move', {
       room: window.roomName,
       playerId: window.playerId,
@@ -587,6 +666,26 @@ export class GameClient {
     }
     clone.lastMoveSeq = Number(player.lastMoveSeq) || 0;
     return clone;
+  }
+
+  recordPendingMove(seq, x, y) {
+    if (this.isHost) {
+      return;
+    }
+    if (!Number.isFinite(seq) || seq <= 0) {
+      return;
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    if (!Array.isArray(this.pendingMoves)) {
+      this.pendingMoves = [];
+    }
+    this.pendingMoves.push({ seq, x, y });
+    const maxBuffered = 90;
+    if (this.pendingMoves.length > maxBuffered) {
+      this.pendingMoves.splice(0, this.pendingMoves.length - maxBuffered);
+    }
   }
 
   cloneItems(items) {
