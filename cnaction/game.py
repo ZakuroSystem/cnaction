@@ -13,10 +13,12 @@ from models import Item, Player, RoomState
 from utils import (
     build_order,
     build_runtime_metadata,
+    default_cooking_recipes,
     default_item_state,
     get_default_config,
     find_combination_recipe,
     find_combination_recipe_from_index,
+    find_cooking_recipe,
     format_item_display,
     hydrate_order,
     ingredient_types,
@@ -167,7 +169,7 @@ def flush_dirty():
         dirty_flags.pop(room, None)
 
 
-def schedule_flush(delay: float = 1 / 20):
+def schedule_flush(delay: float = 1 / 5):
     global _flush_pending
     with _flush_lock:
         if _flush_pending:
