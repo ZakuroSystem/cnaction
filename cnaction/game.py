@@ -118,6 +118,7 @@ def _serialize_player(player: Player) -> dict:
         'base_image': player.base_image,
         'image': player.image,
         'lastMoveSeq': getattr(player, 'lastMoveSeq', 0),
+        'lastActionSeq': getattr(player, 'lastActionSeq', 0),
     }
 
 
@@ -513,6 +514,12 @@ def apply_client_state(room: str, snapshot: dict):
                 seq = None
             if seq is not None and seq >= 0:
                 existing.lastMoveSeq = seq
+            try:
+                action_seq = int(pdata.get('lastActionSeq'))
+            except (TypeError, ValueError):
+                action_seq = None
+            if action_seq is not None and action_seq >= 0:
+                existing.lastActionSeq = action_seq
             item_payload = pdata.get('currentItem')
             if isinstance(item_payload, dict):
                 existing.currentItem = _item_from_snapshot(item_payload, rs.nextItemId)
