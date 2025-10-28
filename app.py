@@ -227,14 +227,29 @@ def on_move(data):
     except (TypeError, ValueError):
         return
 
+    seq = data.get('seq')
+    try:
+        seq_val = int(seq)
+    except (TypeError, ValueError):
+        seq_val = None
+
+    last_seq = getattr(p, 'lastMoveSeq', 0)
+    if seq_val is not None and seq_val <= last_seq:
+        return
+
     moved, obstacles_moved = game.apply_player_move(rs, p, nx, ny)
+    if seq_val is not None:
+        p.lastMoveSeq = seq_val
     if rs.clientManaged:
-        socketio.emit('client_move', {
+        payload = {
             'playerId': pid,
             'room': room,
             'x': p.x,
             'y': p.y,
-        }, room=room)
+        }
+        if seq_val is not None:
+            payload['seq'] = seq_val
+        socketio.emit('client_move', payload, room=room)
     if moved or obstacles_moved:
         game.mark_dirty(room)
 

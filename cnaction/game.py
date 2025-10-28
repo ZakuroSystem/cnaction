@@ -115,6 +115,7 @@ def _serialize_player(player: Player) -> dict:
         'currentZone': dict(player.currentZone) if isinstance(player.currentZone, dict) else None,
         'base_image': player.base_image,
         'image': player.image,
+        'lastMoveSeq': getattr(player, 'lastMoveSeq', 0),
     }
 
 
@@ -504,6 +505,12 @@ def apply_client_state(room: str, snapshot: dict):
                 existing.base_image = str(pdata.get('base_image'))
             if pdata.get('image'):
                 existing.image = str(pdata.get('image'))
+            try:
+                seq = int(pdata.get('lastMoveSeq'))
+            except (TypeError, ValueError):
+                seq = None
+            if seq is not None and seq >= 0:
+                existing.lastMoveSeq = seq
             item_payload = pdata.get('currentItem')
             if isinstance(item_payload, dict):
                 existing.currentItem = _item_from_snapshot(item_payload, rs.nextItemId)

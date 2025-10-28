@@ -23,6 +23,7 @@ class Player:
     currentZone: Optional[dict] = None
     base_image: str = ''
     image: str = ''
+    lastMoveSeq: int = 0
 
 @dataclass
 class RoomState:

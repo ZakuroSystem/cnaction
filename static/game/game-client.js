@@ -43,6 +43,10 @@ export class GameClient {
     this.uiSyncAccumulator = 0;
     this.stateBroadcastInterval = 0.1;
     this.stateBroadcastTimer = 0;
+    this.moveSequence = 0;
+    this.lastAckedMove = 0;
+    this.remoteMoveSequences = new Map();
+    this.lastServerTime = 0;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -56,6 +60,12 @@ export class GameClient {
   }
 
   start() {
+    this.moveSequence = 0;
+    this.lastAckedMove = 0;
+    this.lastServerTime = 0;
+    if (this.remoteMoveSequences) {
+      this.remoteMoveSequences.clear();
+    }
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
     document.addEventListener('visibilitychange', this.boundVisibilityChange);
@@ -101,6 +111,12 @@ export class GameClient {
     this.lastSentPosition = null;
     this.localSimulator = null;
     this.isHost = false;
+    this.moveSequence = 0;
+    this.lastAckedMove = 0;
+    this.lastServerTime = 0;
+    if (this.remoteMoveSequences) {
+      this.remoteMoveSequences.clear();
+    }
     if (this.mobileControls) {
       this.mobileControls.destroy();
       this.mobileControls = null;
@@ -119,6 +135,25 @@ export class GameClient {
   }
 
   handleStateUpdate(state) {
+    const serverTime = Number(state?.serverTime);
+    const hasServerTime = Number.isFinite(serverTime);
+    const previousServerTime = Number(this.lastServerTime) || 0;
+    if (hasServerTime && previousServerTime && serverTime < previousServerTime) {
+      return;
+    }
+    const me = state?.players?.[window.playerId];
+    const ackSeq = Number(me?.lastMoveSeq);
+    if (Number.isFinite(ackSeq)) {
+      if (ackSeq < this.lastAckedMove) {
+        if (!(hasServerTime && serverTime > previousServerTime)) {
+          return;
+        }
+      }
+      this.lastAckedMove = ackSeq;
+    }
+    if (hasServerTime && serverTime >= previousServerTime) {
+      this.lastServerTime = serverTime;
+    }
     const cloned = this.cloneState(state);
     this.serverState = cloned;
     const isClientManaged = Boolean(state?.clientManaged);
@@ -153,6 +188,26 @@ export class GameClient {
       this.queueUiFromLocal();
     } else {
       this.setPendingUiState(cloned);
+    }
+
+    if (this.remoteMoveSequences && this.remoteMoveSequences.size) {
+      const activePlayers = new Set(Object.keys(cloned?.players || {}));
+      for (const key of Array.from(this.remoteMoveSequences.keys())) {
+        if (!activePlayers.has(key)) {
+          this.remoteMoveSequences.delete(key);
+        }
+      }
+    }
+    if (this.remoteMoveSequences) {
+      Object.entries(cloned?.players || {}).forEach(([pid, player]) => {
+        if (pid === window.playerId) {
+          return;
+        }
+        const seq = Number(player?.lastMoveSeq);
+        if (Number.isFinite(seq) && seq >= 0) {
+          this.remoteMoveSequences.set(pid, seq);
+        }
+      });
     }
   }
 
@@ -414,6 +469,20 @@ export class GameClient {
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return;
     }
+    const seq = Number(payload?.seq);
+    if (Number.isFinite(seq)) {
+      const lastSeq = this.remoteMoveSequences?.get(playerId) || 0;
+      if (seq <= lastSeq) {
+        return;
+      }
+      if (this.remoteMoveSequences) {
+        this.remoteMoveSequences.set(playerId, seq);
+      }
+      const simPlayer = this.localSimulator.ensurePlayer(playerId);
+      if (simPlayer) {
+        simPlayer.lastMoveSeq = seq;
+      }
+    }
     this.localSimulator.handleMove(playerId, x, y);
     this.queueUiFromLocal();
   }
@@ -481,11 +550,14 @@ export class GameClient {
 
     this.lastMoveSent = now;
     this.lastSentPosition = { x: this.localPosition.x, y: this.localPosition.y };
+    this.moveSequence += 1;
+    const seq = this.moveSequence;
     this.socket.emit('move', {
       room: window.roomName,
       playerId: window.playerId,
       x: this.localPosition.x,
       y: this.localPosition.y,
+      seq,
     });
   }
 
@@ -513,6 +585,7 @@ export class GameClient {
     if (player.currentItem) {
       clone.currentItem = { ...player.currentItem };
     }
+    clone.lastMoveSeq = Number(player.lastMoveSeq) || 0;
     return clone;
   }
 
