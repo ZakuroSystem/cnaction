@@ -203,19 +203,21 @@ export class GameClient {
     const isClientManaged = Boolean(this.serverState?.clientManaged);
     if (state.players && window.playerId && state.players[window.playerId]) {
       const serverPlayer = state.players[window.playerId];
+      const serverX = Number(serverPlayer?.x);
+      const serverY = Number(serverPlayer?.y);
       if (!this.localPosition) {
         const predicted = this.serverState?.players?.[window.playerId];
-        const baseX = Number.isFinite(predicted?.x) ? predicted.x : serverPlayer.x;
-        const baseY = Number.isFinite(predicted?.y) ? predicted.y : serverPlayer.y;
-        this.localPosition = { x: baseX, y: baseY };
-      } else if (!this.isHost) {
-        if (!isClientManaged) {
-          const dx = this.localPosition.x - serverPlayer.x;
-          const dy = this.localPosition.y - serverPlayer.y;
-          if (dx * dx + dy * dy > 36) {
-            this.localPosition.x = serverPlayer.x;
-            this.localPosition.y = serverPlayer.y;
-          }
+        const baseX = Number.isFinite(predicted?.x) ? predicted.x : serverX;
+        const baseY = Number.isFinite(predicted?.y) ? predicted.y : serverY;
+        if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
+          this.localPosition = { x: baseX, y: baseY };
+        }
+      } else if (!this.isHost && Number.isFinite(serverX) && Number.isFinite(serverY)) {
+        const dx = this.localPosition.x - serverX;
+        const dy = this.localPosition.y - serverY;
+        if (dx * dx + dy * dy > 36) {
+          this.applyReconciledPosition(serverX, serverY);
+          this.lastSentPosition = { x: serverX, y: serverY };
         }
       }
       if (!this.lastSentPosition && this.localPosition) {
