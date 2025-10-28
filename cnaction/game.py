@@ -13,10 +13,12 @@ from models import Item, Player, RoomState
 from utils import (
     build_order,
     build_runtime_metadata,
+    default_cooking_recipes,
     default_item_state,
     get_default_config,
     find_combination_recipe,
     find_combination_recipe_from_index,
+    find_cooking_recipe,
     format_item_display,
     hydrate_order,
     ingredient_types,
@@ -115,6 +117,8 @@ def _serialize_player(player: Player) -> dict:
         'currentZone': dict(player.currentZone) if isinstance(player.currentZone, dict) else None,
         'base_image': player.base_image,
         'image': player.image,
+        'lastMoveSeq': getattr(player, 'lastMoveSeq', 0),
+        'lastActionSeq': getattr(player, 'lastActionSeq', 0),
     }
 
 
@@ -166,7 +170,7 @@ def flush_dirty():
         dirty_flags.pop(room, None)
 
 
-def schedule_flush(delay: float = 1 / 20):
+def schedule_flush(delay: float = 1 / 5):
     global _flush_pending
     with _flush_lock:
         if _flush_pending:
@@ -504,6 +508,18 @@ def apply_client_state(room: str, snapshot: dict):
                 existing.base_image = str(pdata.get('base_image'))
             if pdata.get('image'):
                 existing.image = str(pdata.get('image'))
+            try:
+                seq = int(pdata.get('lastMoveSeq'))
+            except (TypeError, ValueError):
+                seq = None
+            if seq is not None and seq >= 0:
+                existing.lastMoveSeq = seq
+            try:
+                action_seq = int(pdata.get('lastActionSeq'))
+            except (TypeError, ValueError):
+                action_seq = None
+            if action_seq is not None and action_seq >= 0:
+                existing.lastActionSeq = action_seq
             item_payload = pdata.get('currentItem')
             if isinstance(item_payload, dict):
                 existing.currentItem = _item_from_snapshot(item_payload, rs.nextItemId)

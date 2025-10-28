@@ -227,14 +227,29 @@ def on_move(data):
     except (TypeError, ValueError):
         return
 
+    seq = data.get('seq')
+    try:
+        seq_val = int(seq)
+    except (TypeError, ValueError):
+        seq_val = None
+
+    last_seq = getattr(p, 'lastMoveSeq', 0)
+    if seq_val is not None and seq_val <= last_seq:
+        return
+
     moved, obstacles_moved = game.apply_player_move(rs, p, nx, ny)
+    if seq_val is not None:
+        p.lastMoveSeq = seq_val
     if rs.clientManaged:
-        socketio.emit('client_move', {
+        payload = {
             'playerId': pid,
             'room': room,
             'x': p.x,
             'y': p.y,
-        }, room=room)
+        }
+        if seq_val is not None:
+            payload['seq'] = seq_val
+        socketio.emit('client_move', payload, room=room)
     if moved or obstacles_moved:
         game.mark_dirty(room)
 
@@ -244,6 +259,25 @@ def on_interact(data):
     if room not in game.rooms or pid not in game.rooms[room].players:
         return
     rs, p = game.rooms[room], game.rooms[room].players[pid]
+
+    action_seq = data.get('actionSeq')
+    try:
+        action_seq_val = int(action_seq)
+    except (TypeError, ValueError):
+        action_seq_val = None
+
+    last_action_seq = getattr(p, 'lastActionSeq', 0)
+    if action_seq_val is not None and action_seq_val <= last_action_seq:
+        return
+
+    def finalize(state_changed=False):
+        ack_updated = False
+        if action_seq_val is not None:
+            p.lastActionSeq = action_seq_val
+            ack_updated = True
+        if state_changed or ack_updated:
+            game.mark_dirty(room)
+
     if rs.clientManaged:
         payload = {
             'playerId': pid,
@@ -251,7 +285,10 @@ def on_interact(data):
             'x': data.get('x'),
             'y': data.get('y'),
         }
+        if action_seq_val is not None:
+            payload['actionSeq'] = action_seq_val
         socketio.emit('client_interact', payload, room=room)
+        finalize(False)
         return
     x, y = p.x, p.y
     position_updated = False
@@ -269,34 +306,33 @@ def on_interact(data):
 
     if p.currentItem is None:
         if game.try_pickup_world_item(rs, room, p, x, y):
-            game.mark_dirty(room)
+            finalize(True)
             return
         if game.try_spawn_from_generator(rs, p, x, y):
-            game.mark_dirty(room)
+            finalize(True)
             return
-        if position_updated:
-            game.mark_dirty(room)
+        finalize(position_updated)
         return
 
     item = p.currentItem
     action_info = game.resolve_cooking_action(rs, item)
     if action_info and game.start_cooking_action(room, rs, p, x, y, item, action_info):
-        game.mark_dirty(room)
+        finalize(True)
         return
 
     if game.try_deliver_item(rs, p, x, y):
-        game.mark_dirty(room)
+        finalize(True)
         return
 
     item.x = x
     item.y = y
 
     if game.try_stack_combination(rs, room, p, item):
-        game.mark_dirty(room)
+        finalize(True)
         return
 
     game.drop_item_to_world(rs, room, p, item, x, y)
-    game.mark_dirty(room)
+    finalize(True)
 
 
 @socketio.on('client_state')

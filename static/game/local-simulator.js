@@ -753,6 +753,8 @@ function clonePlayer(player) {
     currentZone: player.currentZone ? { ...player.currentZone } : null,
     base_image: player.base_image,
     image: player.image,
+    lastMoveSeq: Number(player.lastMoveSeq) || 0,
+    lastActionSeq: Number(player.lastActionSeq) || 0,
   };
 }
 
@@ -1211,6 +1213,8 @@ export class LocalSimulator {
         currentZone: null,
         base_image: pdata?.base_image || pid,
         image: pdata?.image || pdata?.base_image || pid,
+        lastMoveSeq: Number(pdata?.lastMoveSeq) || 0,
+        lastActionSeq: Number(pdata?.lastActionSeq) || 0,
       };
       player.base_image = pdata?.base_image || player.base_image || pid;
       player.image = pdata?.image || player.image || player.base_image;
@@ -1222,6 +1226,22 @@ export class LocalSimulator {
         } else {
           player.currentItem = null;
         }
+      }
+      if (Number.isFinite(Number(pdata?.lastMoveSeq))) {
+        const seq = Number(pdata.lastMoveSeq);
+        if (seq >= 0) {
+          player.lastMoveSeq = seq;
+        }
+      } else if (!Number.isFinite(Number(player.lastMoveSeq))) {
+        player.lastMoveSeq = 0;
+      }
+      if (Number.isFinite(Number(pdata?.lastActionSeq))) {
+        const actionSeq = Number(pdata.lastActionSeq);
+        if (actionSeq >= 0) {
+          player.lastActionSeq = actionSeq;
+        }
+      } else if (!Number.isFinite(Number(player.lastActionSeq))) {
+        player.lastActionSeq = 0;
       }
       this.state.players[pid] = player;
     });
@@ -1246,6 +1266,8 @@ export class LocalSimulator {
         currentZone: null,
         base_image: playerId,
         image: playerId,
+        lastMoveSeq: 0,
+        lastActionSeq: 0,
       };
       this.dirty = true;
     }

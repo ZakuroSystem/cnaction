@@ -43,6 +43,15 @@ export class GameClient {
     this.uiSyncAccumulator = 0;
     this.stateBroadcastInterval = 0.1;
     this.stateBroadcastTimer = 0;
+    this.moveSequence = 0;
+    this.lastAckedMove = 0;
+    this.remoteMoveSequences = new Map();
+    this.lastServerTime = 0;
+    this.pendingMoves = [];
+    this.actionSequence = 0;
+    this.lastAckedAction = 0;
+    this.pendingActions = [];
+    this.predictionSimulator = null;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -56,6 +65,19 @@ export class GameClient {
   }
 
   start() {
+    this.moveSequence = 0;
+    this.lastAckedMove = 0;
+    this.lastServerTime = 0;
+    this.localPosition = null;
+    this.lastSentPosition = null;
+    this.clearPendingMoves();
+    this.actionSequence = 0;
+    this.lastAckedAction = 0;
+    this.clearPendingActions();
+    this.releasePredictionSimulator();
+    if (this.remoteMoveSequences) {
+      this.remoteMoveSequences.clear();
+    }
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
     document.addEventListener('visibilitychange', this.boundVisibilityChange);
@@ -101,6 +123,17 @@ export class GameClient {
     this.lastSentPosition = null;
     this.localSimulator = null;
     this.isHost = false;
+    this.moveSequence = 0;
+    this.lastAckedMove = 0;
+    this.lastServerTime = 0;
+    this.clearPendingMoves();
+    this.actionSequence = 0;
+    this.lastAckedAction = 0;
+    this.clearPendingActions();
+    this.releasePredictionSimulator();
+    if (this.remoteMoveSequences) {
+      this.remoteMoveSequences.clear();
+    }
     if (this.mobileControls) {
       this.mobileControls.destroy();
       this.mobileControls = null;
@@ -119,21 +152,72 @@ export class GameClient {
   }
 
   handleStateUpdate(state) {
+    const serverTime = Number(state?.serverTime);
+    const hasServerTime = Number.isFinite(serverTime);
+    const previousServerTime = Number(this.lastServerTime) || 0;
+    if (hasServerTime && previousServerTime && serverTime < previousServerTime) {
+      return;
+    }
+    const me = state?.players?.[window.playerId];
+    const ackSeq = Number(me?.lastMoveSeq);
+    if (Number.isFinite(ackSeq)) {
+      if (ackSeq < this.lastAckedMove) {
+        if (!(hasServerTime && serverTime > previousServerTime)) {
+          return;
+        }
+        this.clearPendingMoves();
+      }
+      this.lastAckedMove = ackSeq;
+    } else if (hasServerTime && serverTime > previousServerTime) {
+      this.clearPendingMoves();
+    }
+    const ackAction = Number(me?.lastActionSeq);
+    if (Number.isFinite(ackAction)) {
+      if (ackAction < this.lastAckedAction) {
+        if (!(hasServerTime && serverTime > previousServerTime)) {
+          return;
+        }
+        this.clearPendingActions();
+        this.releasePredictionSimulator();
+      }
+      this.lastAckedAction = ackAction;
+    } else if (hasServerTime && serverTime > previousServerTime) {
+      this.clearPendingActions();
+      this.releasePredictionSimulator();
+    }
+    if (Array.isArray(this.pendingActions) && this.pendingActions.length) {
+      this.pendingActions = this.pendingActions.filter((action) => {
+        if (!action || !Number.isFinite(Number(action.seq))) {
+          return false;
+        }
+        return Number(action.seq) > this.lastAckedAction;
+      });
+    }
+    if (hasServerTime && serverTime >= previousServerTime) {
+      this.lastServerTime = serverTime;
+    }
     const cloned = this.cloneState(state);
     this.serverState = cloned;
-    const isClientManaged = Boolean(state?.clientManaged);
+    this.applyPendingActionPredictions();
+    this.reconcileLocalPrediction(this.serverState, Number.isFinite(ackSeq) ? ackSeq : null);
+    const isClientManaged = Boolean(this.serverState?.clientManaged);
     if (state.players && window.playerId && state.players[window.playerId]) {
-      const me = state.players[window.playerId];
+      const serverPlayer = state.players[window.playerId];
+      const serverX = Number(serverPlayer?.x);
+      const serverY = Number(serverPlayer?.y);
       if (!this.localPosition) {
-        this.localPosition = { x: me.x, y: me.y };
-      } else if (!this.isHost) {
-        if (!isClientManaged) {
-          const dx = this.localPosition.x - me.x;
-          const dy = this.localPosition.y - me.y;
-          if (dx * dx + dy * dy > 36) {
-            this.localPosition.x = me.x;
-            this.localPosition.y = me.y;
-          }
+        const predicted = this.serverState?.players?.[window.playerId];
+        const baseX = Number.isFinite(predicted?.x) ? predicted.x : serverX;
+        const baseY = Number.isFinite(predicted?.y) ? predicted.y : serverY;
+        if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
+          this.localPosition = { x: baseX, y: baseY };
+        }
+      } else if (!this.isHost && Number.isFinite(serverX) && Number.isFinite(serverY)) {
+        const dx = this.localPosition.x - serverX;
+        const dy = this.localPosition.y - serverY;
+        if (dx * dx + dy * dy > 36) {
+          this.applyReconciledPosition(serverX, serverY);
+          this.lastSentPosition = { x: serverX, y: serverY };
         }
       }
       if (!this.lastSentPosition && this.localPosition) {
@@ -146,13 +230,173 @@ export class GameClient {
         this.localSimulator = new LocalSimulator();
       }
       if (!this.localSimulator.hasState()) {
-        this.localSimulator.loadState(cloned);
+        this.localSimulator.loadState(this.serverState);
       } else {
-        this.localSimulator.mergeServerState(cloned, window.playerId);
+        this.localSimulator.mergeServerState(this.serverState, window.playerId);
       }
       this.queueUiFromLocal();
     } else {
-      this.setPendingUiState(cloned);
+      this.setPendingUiState(this.serverState);
+    }
+
+    if (this.remoteMoveSequences && this.remoteMoveSequences.size) {
+      const activePlayers = new Set(Object.keys(this.serverState?.players || {}));
+      for (const key of Array.from(this.remoteMoveSequences.keys())) {
+        if (!activePlayers.has(key)) {
+          this.remoteMoveSequences.delete(key);
+        }
+      }
+    }
+    if (this.remoteMoveSequences) {
+      Object.entries(this.serverState?.players || {}).forEach(([pid, player]) => {
+        if (pid === window.playerId) {
+          return;
+        }
+        const seq = Number(player?.lastMoveSeq);
+        if (Number.isFinite(seq) && seq >= 0) {
+          this.remoteMoveSequences.set(pid, seq);
+        }
+      });
+    }
+  }
+
+  clearPendingMoves() {
+    if (Array.isArray(this.pendingMoves)) {
+      this.pendingMoves.length = 0;
+    } else {
+      this.pendingMoves = [];
+    }
+  }
+
+  clearPendingActions() {
+    if (Array.isArray(this.pendingActions)) {
+      this.pendingActions.length = 0;
+    } else {
+      this.pendingActions = [];
+    }
+  }
+
+  releasePredictionSimulator() {
+    this.predictionSimulator = null;
+  }
+
+  ensurePredictionSimulator() {
+    if (!this.predictionSimulator) {
+      this.predictionSimulator = new LocalSimulator();
+    }
+    return this.predictionSimulator;
+  }
+
+  applyPendingActionPredictions() {
+    if (
+      this.isHost ||
+      !this.serverState ||
+      !window.playerId ||
+      !Array.isArray(this.pendingActions) ||
+      this.pendingActions.length === 0
+    ) {
+      return;
+    }
+    const actionable = this.pendingActions.filter((action) => action?.predicted);
+    if (!actionable.length) {
+      return;
+    }
+    const simulator = this.ensurePredictionSimulator();
+    simulator.loadState(this.serverState);
+    let changed = false;
+    actionable.forEach((action) => {
+      if (!action) {
+        return;
+      }
+      const handled = simulator.handleInteract(window.playerId, {
+        x: action.x,
+        y: action.y,
+      });
+      if (handled) {
+        changed = true;
+      }
+      const seqNum = Number(action.seq);
+      if (Number.isFinite(seqNum)) {
+        const simPlayer = simulator.getPlayer(window.playerId);
+        if (simPlayer && (!Number.isFinite(simPlayer.lastActionSeq) || seqNum > simPlayer.lastActionSeq)) {
+          simPlayer.lastActionSeq = seqNum;
+          changed = true;
+        }
+      }
+    });
+    if (!changed) {
+      return;
+    }
+    const predicted = simulator.getDisplayState();
+    if (!predicted) {
+      return;
+    }
+    this.serverState = predicted;
+    const me = predicted.players?.[window.playerId];
+    if (me && Number.isFinite(me.x) && Number.isFinite(me.y)) {
+      this.applyReconciledPosition(me.x, me.y);
+      this.lastSentPosition = { x: me.x, y: me.y };
+    }
+  }
+
+  reconcileLocalPrediction(state, ackSeq) {
+    if (this.isHost || !state || !window.playerId) {
+      return;
+    }
+    const players = state.players || {};
+    const me = players[window.playerId];
+    if (!me) {
+      return;
+    }
+    if (!Array.isArray(this.pendingMoves)) {
+      this.pendingMoves = [];
+    }
+    if (!this.localPosition) {
+      if (Number.isFinite(me.x) && Number.isFinite(me.y)) {
+        this.localPosition = { x: me.x, y: me.y };
+        this.lastSentPosition = { x: me.x, y: me.y };
+      }
+      return;
+    }
+
+    if (Number.isFinite(ackSeq)) {
+      this.pendingMoves = this.pendingMoves.filter((move) => move && move.seq > ackSeq);
+    }
+
+    let targetX = Number(me.x);
+    let targetY = Number(me.y);
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+      return;
+    }
+
+    if (this.pendingMoves.length) {
+      const simPlayer = this.clonePlayer(me) || { x: targetX, y: targetY };
+      const simState = { config: state.config || null };
+      for (const move of this.pendingMoves) {
+        if (!move) continue;
+        const mx = Number(move.x);
+        const my = Number(move.y);
+        if (!Number.isFinite(mx) || !Number.isFinite(my)) continue;
+        resolvePlayerMovement(simState, simPlayer, mx, my);
+      }
+      targetX = simPlayer.x;
+      targetY = simPlayer.y;
+    } else if (Number.isFinite(ackSeq)) {
+      this.lastSentPosition = { x: targetX, y: targetY };
+    }
+
+    this.applyReconciledPosition(targetX, targetY);
+  }
+
+  applyReconciledPosition(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    if (!this.localPosition) {
+      this.localPosition = { x, y };
+    } else {
+      this.localPosition.x = x;
+      this.localPosition.y = y;
     }
   }
 
@@ -254,6 +498,22 @@ export class GameClient {
       }
       return;
     }
+
+    this.actionSequence += 1;
+    const seq = this.actionSequence;
+    payload.actionSeq = seq;
+
+    const actionRecord = {
+      seq,
+      x: payload.x,
+      y: payload.y,
+      timestamp: performance.now(),
+      predicted: false,
+    };
+
+    const predicted = this.applyLocalInteractionPrediction(actionRecord);
+    actionRecord.predicted = predicted;
+    this.recordPendingAction(actionRecord);
 
     this.socket.emit('interact', payload);
   }
@@ -414,6 +674,20 @@ export class GameClient {
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return;
     }
+    const seq = Number(payload?.seq);
+    if (Number.isFinite(seq)) {
+      const lastSeq = this.remoteMoveSequences?.get(playerId) || 0;
+      if (seq <= lastSeq) {
+        return;
+      }
+      if (this.remoteMoveSequences) {
+        this.remoteMoveSequences.set(playerId, seq);
+      }
+      const simPlayer = this.localSimulator.ensurePlayer(playerId);
+      if (simPlayer) {
+        simPlayer.lastMoveSeq = seq;
+      }
+    }
     this.localSimulator.handleMove(playerId, x, y);
     this.queueUiFromLocal();
   }
@@ -428,8 +702,17 @@ export class GameClient {
     }
     const x = Number(payload?.x);
     const y = Number(payload?.y);
+    const seq = Number(payload?.actionSeq);
     const handled = this.localSimulator.handleInteract(playerId, { x, y });
-    if (handled) {
+    let ackApplied = false;
+    if (Number.isFinite(seq)) {
+      const simPlayer = this.localSimulator.getPlayer(playerId);
+      if (simPlayer && (!Number.isFinite(simPlayer.lastActionSeq) || seq > simPlayer.lastActionSeq)) {
+        simPlayer.lastActionSeq = seq;
+        ackApplied = true;
+      }
+    }
+    if (handled || ackApplied) {
       this.queueUiFromLocal();
       this.broadcastLocalState(true);
     }
@@ -481,11 +764,15 @@ export class GameClient {
 
     this.lastMoveSent = now;
     this.lastSentPosition = { x: this.localPosition.x, y: this.localPosition.y };
+    this.moveSequence += 1;
+    const seq = this.moveSequence;
+    this.recordPendingMove(seq, this.localPosition.x, this.localPosition.y);
     this.socket.emit('move', {
       room: window.roomName,
       playerId: window.playerId,
       x: this.localPosition.x,
       y: this.localPosition.y,
+      seq,
     });
   }
 
@@ -513,10 +800,88 @@ export class GameClient {
     if (player.currentItem) {
       clone.currentItem = { ...player.currentItem };
     }
+    clone.lastMoveSeq = Number(player.lastMoveSeq) || 0;
+    clone.lastActionSeq = Number(player.lastActionSeq) || 0;
     return clone;
+  }
+
+  recordPendingMove(seq, x, y) {
+    if (this.isHost) {
+      return;
+    }
+    if (!Number.isFinite(seq) || seq <= 0) {
+      return;
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    if (!Array.isArray(this.pendingMoves)) {
+      this.pendingMoves = [];
+    }
+    this.pendingMoves.push({ seq, x, y });
+    const maxBuffered = 90;
+    if (this.pendingMoves.length > maxBuffered) {
+      this.pendingMoves.splice(0, this.pendingMoves.length - maxBuffered);
+    }
   }
 
   cloneItems(items) {
     return items.map((item) => ({ ...item }));
+  }
+
+  recordPendingAction(action) {
+    if (this.isHost) {
+      return;
+    }
+    if (!action || !Number.isFinite(Number(action.seq)) || Number(action.seq) <= 0) {
+      return;
+    }
+    if (!Array.isArray(this.pendingActions)) {
+      this.pendingActions = [];
+    }
+    this.pendingActions.push(action);
+    const maxBuffered = 60;
+    if (this.pendingActions.length > maxBuffered) {
+      this.pendingActions.splice(0, this.pendingActions.length - maxBuffered);
+    }
+  }
+
+  applyLocalInteractionPrediction(action) {
+    if (this.isHost) {
+      return false;
+    }
+    if (!this.serverState || !window.playerId) {
+      return false;
+    }
+    const simulator = this.ensurePredictionSimulator();
+    simulator.loadState(this.serverState);
+    const handled = simulator.handleInteract(window.playerId, {
+      x: action?.x,
+      y: action?.y,
+    });
+    let changed = handled;
+    const seqNum = Number(action?.seq);
+    if (Number.isFinite(seqNum)) {
+      const simPlayer = simulator.getPlayer(window.playerId);
+      if (simPlayer && (!Number.isFinite(simPlayer.lastActionSeq) || seqNum > simPlayer.lastActionSeq)) {
+        simPlayer.lastActionSeq = seqNum;
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return false;
+    }
+    const predicted = simulator.getDisplayState();
+    if (!predicted) {
+      return false;
+    }
+    this.serverState = predicted;
+    const me = predicted.players?.[window.playerId];
+    if (me && Number.isFinite(me.x) && Number.isFinite(me.y)) {
+      this.applyReconciledPosition(me.x, me.y);
+      this.lastSentPosition = { x: me.x, y: me.y };
+    }
+    this.setPendingUiState(predicted);
+    return true;
   }
 }
