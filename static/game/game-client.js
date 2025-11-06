@@ -41,7 +41,7 @@ export class GameClient {
     this.pendingUiState = null;
     this.uiSyncInterval = 1 / 15;
     this.uiSyncAccumulator = 0;
-    this.stateBroadcastInterval = 0.1;
+    this.stateBroadcastInterval = 0.25;
     this.stateBroadcastTimer = 0;
     this.moveSequence = 0;
     this.lastAckedMove = 0;
@@ -761,8 +761,8 @@ export class GameClient {
   maybeSendMove(moving) {
     if (!this.localPosition || !window.roomName || !window.playerId) return;
     const now = performance.now();
-    const targetInterval = 50;
-    const shouldSendByTime = now - this.lastMoveSent > targetInterval;
+    const targetInterval = 250;
+    const shouldSendByTime = moving && now - this.lastMoveSent >= targetInterval;
     let shouldSendByDistance = false;
     if (this.lastSentPosition) {
       const dx = this.localPosition.x - this.lastSentPosition.x;
