@@ -4,6 +4,14 @@ import { Renderer } from './renderer.js';
 import { UIManager } from './ui-manager.js';
 import { LocalSimulator, PLAYER_RADIUS, resolvePlayerMovement } from './local-simulator.js';
 
+function toFiniteNumber(value) {
+  if (value === null || value === undefined) {
+    return NaN;
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? num : NaN;
+}
+
 export class GameClient {
   constructor(container, socket, onDispose = () => {}) {
     this.container = container;
@@ -115,8 +123,8 @@ export class GameClient {
         this.localSimulator = null;
       }
       this.stateBroadcastTimer = 0;
-      const spawnX = Number(data?.x);
-      const spawnY = Number(data?.y);
+      const spawnX = toFiniteNumber(data?.x);
+      const spawnY = toFiniteNumber(data?.y);
       if (Number.isFinite(spawnX) && Number.isFinite(spawnY)) {
         this.initialSpawn = { x: spawnX, y: spawnY };
         this.applyReconciledPosition(spawnX, spawnY);
@@ -247,8 +255,8 @@ export class GameClient {
     const hasPendingMoves = Array.isArray(this.pendingMoves) && this.pendingMoves.length > 0;
     if (state.players && window.playerId && state.players[window.playerId]) {
       const serverPlayer = state.players[window.playerId];
-      const serverX = Number(serverPlayer?.x);
-      const serverY = Number(serverPlayer?.y);
+      const serverX = toFiniteNumber(serverPlayer?.x);
+      const serverY = toFiniteNumber(serverPlayer?.y);
       if (!this.localPosition) {
         const predicted = this.serverState?.players?.[window.playerId];
         let baseX = Number.isFinite(predicted?.x) ? predicted.x : serverX;
@@ -413,8 +421,8 @@ export class GameClient {
       this.pendingMoves = [];
     }
     if (!this.localPosition) {
-      let baseX = Number(me.x);
-      let baseY = Number(me.y);
+      let baseX = toFiniteNumber(me?.x);
+      let baseY = toFiniteNumber(me?.y);
       if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
         baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
         baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
@@ -430,8 +438,8 @@ export class GameClient {
       this.pendingMoves = this.pendingMoves.filter((move) => move && move.seq > ackSeq);
     }
 
-    let targetX = Number(me.x);
-    let targetY = Number(me.y);
+    let targetX = toFiniteNumber(me?.x);
+    let targetY = toFiniteNumber(me?.y);
     if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
       if (this.localPosition) {
         targetX = this.localPosition.x;
@@ -447,8 +455,8 @@ export class GameClient {
       const simState = { config: state.config || null };
       for (const move of this.pendingMoves) {
         if (!move) continue;
-        const mx = Number(move.x);
-        const my = Number(move.y);
+        const mx = toFiniteNumber(move?.x);
+        const my = toFiniteNumber(move?.y);
         if (!Number.isFinite(mx) || !Number.isFinite(my)) continue;
         resolvePlayerMovement(simState, simPlayer, mx, my);
       }
@@ -599,8 +607,8 @@ export class GameClient {
     if (!me) return;
 
     if (!this.localPosition) {
-      let baseX = Number(me?.x);
-      let baseY = Number(me?.y);
+      let baseX = toFiniteNumber(me?.x);
+      let baseY = toFiniteNumber(me?.y);
       if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
         baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
         baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
@@ -750,7 +758,9 @@ export class GameClient {
     if (!this.isHost || !this.localSimulator) {
       return;
     }
-    const { playerId, x, y } = payload || {};
+    const { playerId } = payload || {};
+    const x = toFiniteNumber(payload?.x);
+    const y = toFiniteNumber(payload?.y);
     if (!playerId || playerId === window.playerId) {
       return;
     }
@@ -793,8 +803,8 @@ export class GameClient {
         });
       }
     }
-    const ackX = Number(payload?.x);
-    const ackY = Number(payload?.y);
+    const ackX = toFiniteNumber(payload?.x);
+    const ackY = toFiniteNumber(payload?.y);
     if (Number.isFinite(ackX) && Number.isFinite(ackY)) {
       this.applyReconciledPosition(ackX, ackY);
       this.lastSentPosition = { x: ackX, y: ackY };
@@ -813,8 +823,8 @@ export class GameClient {
     if (!playerId || playerId === window.playerId) {
       return;
     }
-    const x = Number(payload?.x);
-    const y = Number(payload?.y);
+    const x = toFiniteNumber(payload?.x);
+    const y = toFiniteNumber(payload?.y);
     const seq = Number(payload?.actionSeq);
     const handled = this.localSimulator.handleInteract(playerId, { x, y });
     let ackApplied = false;
@@ -934,8 +944,8 @@ export class GameClient {
       if (!pid || pid === window.playerId) {
         return;
       }
-      const x = Number(value?.x);
-      const y = Number(value?.y);
+      const x = toFiniteNumber(value?.x);
+      const y = toFiniteNumber(value?.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return;
       }
@@ -972,8 +982,8 @@ export class GameClient {
       if (!player) {
         continue;
       }
-      const x = Number(info?.x);
-      const y = Number(info?.y);
+      const x = toFiniteNumber(info?.x);
+      const y = toFiniteNumber(info?.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         continue;
       }
