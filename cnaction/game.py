@@ -720,7 +720,8 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
             continue
 
         if delta > 0:
-            limit = metrics['left'] - PLAYER_RADIUS
+            limit_key = 'left' if axis == 'x' else 'top'
+            limit = metrics[limit_key] - PLAYER_RADIUS
             if candidate <= limit + COLLISION_EPSILON:
                 continue
             if pushable:
@@ -736,10 +737,11 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
                 ):
                     moved_obstacles = True
                 metrics = _obstacle_metrics(obstacle)
-                limit = metrics['left'] - PLAYER_RADIUS
+                limit = metrics[limit_key] - PLAYER_RADIUS
             candidate = min(candidate, limit)
         else:
-            limit = metrics['right'] + PLAYER_RADIUS
+            limit_key = 'right' if axis == 'x' else 'bottom'
+            limit = metrics[limit_key] + PLAYER_RADIUS
             if candidate >= limit - COLLISION_EPSILON:
                 continue
             if pushable:
@@ -755,7 +757,7 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
                 ):
                     moved_obstacles = True
                 metrics = _obstacle_metrics(obstacle)
-                limit = metrics['right'] + PLAYER_RADIUS
+                limit = metrics[limit_key] + PLAYER_RADIUS
             candidate = max(candidate, limit)
 
     if axis == 'x':
