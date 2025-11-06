@@ -270,13 +270,14 @@ def on_interact(data):
     if action_seq_val is not None and action_seq_val <= last_action_seq:
         return
 
-    def finalize(state_changed=False):
+    def finalize(state_changed=False, immediate=None):
         ack_updated = False
         if action_seq_val is not None:
             p.lastActionSeq = action_seq_val
             ack_updated = True
         if state_changed or ack_updated:
-            game.mark_dirty(room)
+            should_flush_immediately = state_changed if immediate is None else bool(immediate)
+            game.mark_dirty(room, immediate=should_flush_immediately)
 
     if rs.clientManaged:
         payload = {
@@ -311,7 +312,7 @@ def on_interact(data):
         if game.try_spawn_from_generator(rs, p, x, y):
             finalize(True)
             return
-        finalize(position_updated)
+        finalize(position_updated, immediate=False)
         return
 
     item = p.currentItem
