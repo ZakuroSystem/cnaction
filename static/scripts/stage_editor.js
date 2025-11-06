@@ -48,7 +48,6 @@ const configError = document.getElementById('configError');
 const typeLabels = {
     action: '作業台',
     delivery: '配達カウンター',
-    moving: '動く障害物',
     static: '壁',
     foodGen: '食材マシン',
     transferSrc: 'ワープ入口',
@@ -62,7 +61,6 @@ const baseTexturePaths = {
     action_boil: newItemTexture('フライパンが乗っているカウンター.png'),
     action_mix: newItemTexture('まな板が乗っているカウンター.png'),
     delivery: newItemTexture('配膳用カウンター.png'),
-    moving: newItemTexture('四角いカウンター .png'),
     static: newItemTexture('四角いカウンター .png'),
     foodGen: newItemTexture('食材が出てくるかご.png'),
     transferSrc: newItemTexture('食材ワープ(青).png'),
@@ -154,14 +152,18 @@ function ensureStageStructure() {
     config.wrongOrderPenalty = Number.isNaN(penalty) ? 0 : penalty;
 
     config.actionZones = Array.isArray(config.actionZones) ? config.actionZones : [];
-    config.movingObstacles = Array.isArray(config.movingObstacles) ? config.movingObstacles : [];
-    config.staticObstacles = Array.isArray(config.staticObstacles) ? config.staticObstacles : [];
+    const movingObstacles = Array.isArray(config.movingObstacles) ? config.movingObstacles : [];
+    const staticObstacles = Array.isArray(config.staticObstacles) ? config.staticObstacles : [];
+    config.staticObstacles = staticObstacles.map(zone => normaliseZone(zone, { width: 96, height: 96 }));
+    const migrated = movingObstacles.map(zone => normaliseZone(zone, { width: 96, height: 96 }));
+    if (migrated.length) {
+        config.staticObstacles.push(...migrated);
+    }
+    config.movingObstacles = [];
     config.foodGenerators = Array.isArray(config.foodGenerators) ? config.foodGenerators : [];
     config.transferObjects = Array.isArray(config.transferObjects) ? config.transferObjects : [];
 
     config.actionZones.forEach(zone => normaliseZone(zone, { width: 160, height: 120 }));
-    config.movingObstacles.forEach(zone => normaliseZone(zone, { width: 96, height: 96 }));
-    config.staticObstacles.forEach(zone => normaliseZone(zone, { width: 96, height: 96 }));
     config.foodGenerators.forEach(zone => normaliseZone(zone, { width: 96, height: 96 }));
     config.transferObjects.forEach(tr => {
         tr.sourceZone = normaliseZone(tr.sourceZone, { width: 72, height: 72 });
@@ -197,8 +199,7 @@ function updateSummary() {
     const rows = [
         { label: '作業台', value: config.actionZones.length, suffix: '箇所' },
         { label: '配達カウンター', value: config.deliveryZone ? 1 : 0, suffix: '箇所' },
-        { label: '動く障害物', value: config.movingObstacles.length, suffix: '個' },
-        { label: '壁', value: config.staticObstacles.length, suffix: '枚' },
+        { label: '障害物', value: config.staticObstacles.length, suffix: '個' },
         { label: '食材マシン', value: config.foodGenerators.length, suffix: '台' },
         { label: 'ワープ', value: config.transferObjects.length, suffix: '組' }
     ];
@@ -217,8 +218,7 @@ function updateObjectList() {
         { type: 'delivery', label: '配達カウンター', items: draggables.filter(d => d.type === 'delivery') },
         { type: 'action', label: '作業台', items: draggables.filter(d => d.type === 'action') },
         { type: 'foodGen', label: '食材マシン', items: draggables.filter(d => d.type === 'foodGen') },
-        { type: 'moving', label: '動く障害物', items: draggables.filter(d => d.type === 'moving') },
-        { type: 'static', label: '壁', items: draggables.filter(d => d.type === 'static') },
+        { type: 'static', label: '障害物', items: draggables.filter(d => d.type === 'static') },
         { type: 'transferSrc', label: 'ワープ入口/出口', items: draggables.filter(d => d.type === 'transferSrc' || d.type === 'transferDst') }
     ];
     let hasItems = false;
@@ -267,7 +267,6 @@ function initDraggables() {
     if (config.deliveryZone) {
         draggables.push({ ...config.deliveryZone, type: 'delivery', idx: 0, id: 'delivery' });
     }
-    config.movingObstacles.forEach((zone, i) => draggables.push({ ...zone, type: 'moving', idx: i, id: `moving-${i}` }));
     config.staticObstacles.forEach((zone, i) => draggables.push({ ...zone, type: 'static', idx: i, id: `static-${i}` }));
     config.foodGenerators.forEach((zone, i) => draggables.push({ ...zone, type: 'foodGen', idx: i, id: `foodGen-${i}` }));
     config.transferObjects.forEach((tr, i) => {
@@ -325,9 +324,6 @@ function readForm(updateUi = true) {
                 if (!config.deliveryZone) config.deliveryZone = {};
                 Object.assign(config.deliveryZone, { x: d.x, y: d.y, width: d.width, height: d.height });
                 break;
-            case 'moving':
-                Object.assign(config.movingObstacles[d.idx], { x: d.x, y: d.y, width: d.width, height: d.height });
-                break;
             case 'static':
                 Object.assign(config.staticObstacles[d.idx], { x: d.x, y: d.y, width: d.width, height: d.height });
                 break;
@@ -351,12 +347,11 @@ function readForm(updateUi = true) {
 
 const renderOrder = {
     static: 0,
-    moving: 1,
-    transferSrc: 2,
-    transferDst: 2,
-    action: 3,
-    foodGen: 4,
-    delivery: 5
+    transferSrc: 1,
+    transferDst: 1,
+    action: 2,
+    foodGen: 3,
+    delivery: 4
 };
 
 const actionBadges = {
@@ -620,9 +615,6 @@ function applyDetails() {
             if (!config.deliveryZone) config.deliveryZone = {};
             Object.assign(config.deliveryZone, selected);
             break;
-        case 'moving':
-            Object.assign(config.movingObstacles[idx], selected);
-            break;
         case 'static':
             Object.assign(config.staticObstacles[idx], selected);
             break;
@@ -676,9 +668,6 @@ if (canvas) {
             case 'delivery':
                 if (!config.deliveryZone) config.deliveryZone = {};
                 Object.assign(config.deliveryZone, { x: dragging.x, y: dragging.y });
-                break;
-            case 'moving':
-                Object.assign(config.movingObstacles[dragging.idx], { x: dragging.x, y: dragging.y });
                 break;
             case 'static':
                 Object.assign(config.staticObstacles[dragging.idx], { x: dragging.x, y: dragging.y });
@@ -749,17 +738,6 @@ if (addFoodButton) {
     };
 }
 
-const addMovingButton = document.getElementById('addMovingObstacle');
-if (addMovingButton) {
-    addMovingButton.onclick = () => {
-        ensureStageStructure();
-        const idx = config.movingObstacles.length;
-        config.movingObstacles.push({ x: 300 + idx * 60, y: 260, width: 96, height: 96 });
-        pendingSelectId = `moving-${idx}`;
-        refreshUi();
-    };
-}
-
 const addStaticButton = document.getElementById('addStaticObstacle');
 if (addStaticButton) {
     addStaticButton.onclick = () => {
@@ -799,9 +777,6 @@ if (deleteButton) {
                 break;
             case 'delivery':
                 config.deliveryZone = null;
-                break;
-            case 'moving':
-                config.movingObstacles.splice(target.idx, 1);
                 break;
             case 'static':
                 config.staticObstacles.splice(target.idx, 1);

@@ -309,8 +309,10 @@ def sanitize_config(cfg: dict) -> dict:
                 sanitized.append(_sanitize_obstacle(entry))
         return sanitized
 
-    cfg['staticObstacles'] = _sanitize_obstacle_list(cfg.get('staticObstacles'))
-    cfg['movingObstacles'] = _sanitize_obstacle_list(cfg.get('movingObstacles'))
+    static_obstacles = _sanitize_obstacle_list(cfg.get('staticObstacles'))
+    moving_obstacles = _sanitize_obstacle_list(cfg.get('movingObstacles'))
+    cfg['staticObstacles'] = static_obstacles + moving_obstacles
+    cfg['movingObstacles'] = []
     cfg.setdefault('transferObjects', [])
 
     return cfg

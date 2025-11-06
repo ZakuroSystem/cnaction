@@ -464,15 +464,10 @@ function zonesForObstacle(config, obstacle) {
 function obstacleEntries(config) {
   const entries = [];
   const staticList = Array.isArray(config?.staticObstacles) ? config.staticObstacles : [];
-  staticList.forEach((obstacle) => {
+  const movingList = Array.isArray(config?.movingObstacles) ? config.movingObstacles : [];
+  [...staticList, ...movingList].forEach((obstacle) => {
     if (obstacle && typeof obstacle === 'object') {
       entries.push({ obstacle, pushable: false, zones: zonesForObstacle(config, obstacle) });
-    }
-  });
-  const movingList = Array.isArray(config?.movingObstacles) ? config.movingObstacles : [];
-  movingList.forEach((obstacle) => {
-    if (obstacle && typeof obstacle === 'object') {
-      entries.push({ obstacle, pushable: true, zones: zonesForObstacle(config, obstacle) });
     }
   });
   return entries;
@@ -783,16 +778,14 @@ function buildItemLookup(items) {
 function cloneState(state) {
   if (!state) return null;
   const config = state.config ? { ...state.config } : {};
-  if (Array.isArray(state.config?.staticObstacles)) {
-    config.staticObstacles = state.config.staticObstacles.map((ob) => ({ ...ob }));
-  } else {
-    config.staticObstacles = [];
-  }
-  if (Array.isArray(state.config?.movingObstacles)) {
-    config.movingObstacles = state.config.movingObstacles.map((ob) => ({ ...ob }));
-  } else {
-    config.movingObstacles = [];
-  }
+  const staticObstacles = Array.isArray(state.config?.staticObstacles)
+    ? state.config.staticObstacles.map((ob) => ({ ...ob }))
+    : [];
+  const movingObstacles = Array.isArray(state.config?.movingObstacles)
+    ? state.config.movingObstacles.map((ob) => ({ ...ob }))
+    : [];
+  config.staticObstacles = [...staticObstacles, ...movingObstacles];
+  config.movingObstacles = [];
   const items = cloneItems(state.items);
   return {
     players: clonePlayers(state.players),
@@ -1138,9 +1131,12 @@ export class LocalSimulator {
     if (!Array.isArray(this.state?.config?.staticObstacles)) {
       this.state.config.staticObstacles = [];
     }
-    if (!Array.isArray(this.state?.config?.movingObstacles)) {
-      this.state.config.movingObstacles = [];
+    if (Array.isArray(this.state?.config?.movingObstacles) && this.state.config.movingObstacles.length) {
+      this.state.config.staticObstacles.push(
+        ...this.state.config.movingObstacles.map((ob) => ({ ...ob }))
+      );
     }
+    this.state.config.movingObstacles = [];
     if (this.state?.config?.actionZones) {
       this.state.config.actionZones = this.state.config.actionZones.map((zone, index) => {
         const cloned = { ...zone };
@@ -1182,12 +1178,14 @@ export class LocalSimulator {
     if (state?.config) {
       const incomingConfig = state.config || {};
       this.state.config = { ...incomingConfig };
-      this.state.config.staticObstacles = Array.isArray(incomingConfig.staticObstacles)
+      const staticObstacles = Array.isArray(incomingConfig.staticObstacles)
         ? incomingConfig.staticObstacles.map((ob) => ({ ...ob }))
         : [];
-      this.state.config.movingObstacles = Array.isArray(incomingConfig.movingObstacles)
+      const movingObstacles = Array.isArray(incomingConfig.movingObstacles)
         ? incomingConfig.movingObstacles.map((ob) => ({ ...ob }))
         : [];
+      this.state.config.staticObstacles = [...staticObstacles, ...movingObstacles];
+      this.state.config.movingObstacles = [];
       runtimeChanged = true;
     }
     if (Number.isFinite(state?.configRevision)) {

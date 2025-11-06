@@ -624,8 +624,11 @@ def get_default_config() -> dict:
              'action': 'bake', 'display': '焼いている…', 'occupied': False},
         ],
         'deliveryZone': {'x': 700, 'y': 500, 'width': 150, 'height': 150},
-        'movingObstacles': [{'x': 400, 'y': 300, 'width': 96, 'height': 96}],
-        'staticObstacles': [{'x': 600, 'y': 300, 'width': 96, 'height': 96}],
+        'staticObstacles': [
+            {'x': 400, 'y': 300, 'width': 96, 'height': 96},
+            {'x': 600, 'y': 300, 'width': 96, 'height': 96},
+        ],
+        'movingObstacles': [],
         'foodGenerators': [{
             'x': 750, 'y': 50, 'width': 96, 'height': 96,
             'nextFood': random.choice(ingredient_list)
