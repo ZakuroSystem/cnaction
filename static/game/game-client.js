@@ -197,6 +197,20 @@ export class GameClient {
       this.lastServerTime = serverTime;
     }
     const cloned = this.cloneState(state);
+    if (
+      !this.isHost &&
+      window.playerId &&
+      this.localPosition &&
+      Number.isFinite(this.localPosition.x) &&
+      Number.isFinite(this.localPosition.y) &&
+      cloned?.players?.[window.playerId]
+    ) {
+      cloned.players[window.playerId] = {
+        ...cloned.players[window.playerId],
+        x: this.localPosition.x,
+        y: this.localPosition.y,
+      };
+    }
     this.serverState = cloned;
     this.applyPendingActionPredictions();
     this.reconcileLocalPrediction(this.serverState, Number.isFinite(ackSeq) ? ackSeq : null);
