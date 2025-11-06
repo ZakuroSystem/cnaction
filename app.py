@@ -186,7 +186,14 @@ def on_join(data):
     rs.hostId = ''
     rs.clientManaged = False
     game.mark_dirty(room)
-    return {'playerId': pid, 'isHost': False, 'clientManaged': rs.clientManaged}
+    player = rs.players[pid]
+    return {
+        'playerId': pid,
+        'isHost': False,
+        'clientManaged': rs.clientManaged,
+        'x': player.x,
+        'y': player.y,
+    }
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -252,6 +259,16 @@ def on_move(data):
         socketio.emit('client_move', payload, room=room)
     if moved or obstacles_moved:
         game.mark_dirty(room)
+
+    ack = {
+        'playerId': pid,
+        'room': room,
+        'seq': getattr(p, 'lastMoveSeq', seq_val or 0),
+        'x': p.x,
+        'y': p.y,
+        'serverTime': time.time(),
+    }
+    socketio.emit('move_ack', ack, room=request.sid)
 
 @socketio.on('interact')
 def on_interact(data):
@@ -353,6 +370,18 @@ def on_client_state(data):
         rs.hostId = pid
     game.apply_client_state(room, snapshot)
     game.mark_dirty(room)
+
+
+@socketio.on('request_positions')
+def on_request_positions(data):
+    room = data.get('room')
+    if room not in game.rooms:
+        return {'players': {}, 'serverTime': time.time()}
+    player_ids = data.get('players')
+    if not isinstance(player_ids, (list, tuple, set)):
+        player_ids = None
+    positions = game.get_player_positions(room, player_ids)
+    return {'players': positions, 'serverTime': time.time()}
 
 # ─────────────────────────────────────────
 # ゲームタイマー起動

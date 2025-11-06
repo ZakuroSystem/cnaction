@@ -109,10 +109,10 @@ def _serialize_item(item: Optional[Item]) -> Optional[dict]:
     }
 
 
-def _serialize_player(player: Player) -> dict:
-    return {
-        'x': player.x,
-        'y': player.y,
+def _serialize_player(player: Player, *, include_position: bool = True) -> dict:
+    data = {
+        'x': player.x if include_position else None,
+        'y': player.y if include_position else None,
         'currentItem': _serialize_item(player.currentItem),
         'cooking': player.cooking,
         'currentZone': dict(player.currentZone) if isinstance(player.currentZone, dict) else None,
@@ -121,12 +121,19 @@ def _serialize_player(player: Player) -> dict:
         'lastMoveSeq': getattr(player, 'lastMoveSeq', 0),
         'lastActionSeq': getattr(player, 'lastActionSeq', 0),
     }
+    if not include_position and data['currentItem']:
+        data['currentItem']['x'] = None
+        data['currentItem']['y'] = None
+    return data
 
 
-def serialize_room_state(rs: RoomState) -> dict:
+def serialize_room_state(rs: RoomState, *, include_positions: bool = True) -> dict:
     with _room_lock(rs):
         return {
-            'players': {pid: _serialize_player(p) for pid, p in rs.players.items()},
+            'players': {
+                pid: _serialize_player(p, include_position=include_positions)
+                for pid, p in rs.players.items()
+            },
             'items': [_serialize_item(itm) for itm in rs.items],
             'orders': [dict(order) for order in rs.orders if isinstance(order, dict)],
             'score': rs.score,
@@ -139,6 +146,29 @@ def serialize_room_state(rs: RoomState) -> dict:
             'clientManaged': rs.clientManaged,
             'configRevision': rs.configRevision,
         }
+
+
+def get_player_positions(room: str, player_ids=None) -> dict:
+    rs = rooms.get(room)
+    if not rs:
+        return {}
+    if isinstance(player_ids, (list, tuple, set)):
+        requested = {pid for pid in player_ids if isinstance(pid, str)}
+    else:
+        requested = None
+
+    with _room_lock(rs):
+        players = rs.players or {}
+        result = {}
+        for pid, player in players.items():
+            if requested is not None and pid not in requested:
+                continue
+            result[pid] = {
+                'x': float(player.x),
+                'y': float(player.y),
+                'lastMoveSeq': getattr(player, 'lastMoveSeq', 0),
+            }
+    return result
 
 # ─────────────────────────────────────────
 # ユーティリティ関数
@@ -160,7 +190,7 @@ def _emit_room_state(room: str) -> bool:
             dirty_flags.pop(room, None)
         return False
 
-    state = serialize_room_state(rs)
+    state = serialize_room_state(rs, include_positions=False)
     state['serverTime'] = time.time()
     _require_socketio().emit('state_update', state, room=room)
 

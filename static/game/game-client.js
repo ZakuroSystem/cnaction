@@ -52,6 +52,11 @@ export class GameClient {
     this.lastAckedAction = 0;
     this.pendingActions = [];
     this.predictionSimulator = null;
+    this.moveSendIntervalMs = 200;
+    this.remotePositions = new Map();
+    this.positionRequestInterval = 0.2;
+    this.positionRequestTimer = 0;
+    this.initialSpawn = null;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -60,6 +65,7 @@ export class GameClient {
     this.boundForceDisconnect = () => this.handleForceDisconnect();
     this.boundClientInteract = (payload) => this.handleClientInteract(payload);
     this.boundClientMove = (payload) => this.handleClientMove(payload);
+    this.boundMoveAck = (payload) => this.handleMoveAck(payload);
 
     this.mobileControls = new MobileControls(this);
   }
@@ -70,6 +76,7 @@ export class GameClient {
     this.lastServerTime = 0;
     this.localPosition = null;
     this.lastSentPosition = null;
+    this.lastMoveSent = 0;
     this.clearPendingMoves();
     this.actionSequence = 0;
     this.lastAckedAction = 0;
@@ -78,6 +85,11 @@ export class GameClient {
     if (this.remoteMoveSequences) {
       this.remoteMoveSequences.clear();
     }
+    if (this.remotePositions) {
+      this.remotePositions.clear();
+    }
+    this.positionRequestTimer = 0;
+    this.initialSpawn = null;
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
     document.addEventListener('visibilitychange', this.boundVisibilityChange);
@@ -86,10 +98,12 @@ export class GameClient {
     this.socket.off('force_disconnect', this.boundForceDisconnect);
     this.socket.off('client_interact', this.boundClientInteract);
     this.socket.off('client_move', this.boundClientMove);
+    this.socket.off('move_ack', this.boundMoveAck);
     this.socket.on('state_update', this.boundStateUpdate);
     this.socket.on('force_disconnect', this.boundForceDisconnect);
     this.socket.on('client_interact', this.boundClientInteract);
     this.socket.on('client_move', this.boundClientMove);
+    this.socket.on('move_ack', this.boundMoveAck);
 
     const payload = { room: String(window.roomName || 'room1') };
     this.socket.emit('join', payload, (data) => {
@@ -101,6 +115,13 @@ export class GameClient {
         this.localSimulator = null;
       }
       this.stateBroadcastTimer = 0;
+      const spawnX = Number(data?.x);
+      const spawnY = Number(data?.y);
+      if (Number.isFinite(spawnX) && Number.isFinite(spawnY)) {
+        this.initialSpawn = { x: spawnX, y: spawnY };
+        this.applyReconciledPosition(spawnX, spawnY);
+        this.lastSentPosition = { x: spawnX, y: spawnY };
+      }
     });
 
     this.canvas.focus({ preventScroll: true });
@@ -116,11 +137,13 @@ export class GameClient {
     this.socket.off('force_disconnect', this.boundForceDisconnect);
     this.socket.off('client_interact', this.boundClientInteract);
     this.socket.off('client_move', this.boundClientMove);
+    this.socket.off('move_ack', this.boundMoveAck);
     this.pendingUiState = null;
     this.uiSyncAccumulator = 0;
     this.serverState = null;
     this.localPosition = null;
     this.lastSentPosition = null;
+    this.lastMoveSent = 0;
     this.localSimulator = null;
     this.isHost = false;
     this.moveSequence = 0;
@@ -134,6 +157,11 @@ export class GameClient {
     if (this.remoteMoveSequences) {
       this.remoteMoveSequences.clear();
     }
+    if (this.remotePositions) {
+      this.remotePositions.clear();
+    }
+    this.positionRequestTimer = 0;
+    this.initialSpawn = null;
     if (this.mobileControls) {
       this.mobileControls.destroy();
       this.mobileControls = null;
@@ -197,6 +225,7 @@ export class GameClient {
       this.lastServerTime = serverTime;
     }
     const cloned = this.cloneState(state);
+    this.applyRemotePositionsToState(cloned);
     if (
       !this.isHost &&
       window.playerId &&
@@ -212,18 +241,22 @@ export class GameClient {
       };
     }
     this.serverState = cloned;
+    this.applyRemotePositionsToState(this.serverState);
     this.applyPendingActionPredictions();
     this.reconcileLocalPrediction(this.serverState, Number.isFinite(ackSeq) ? ackSeq : null);
     const hasPendingMoves = Array.isArray(this.pendingMoves) && this.pendingMoves.length > 0;
-    const isClientManaged = Boolean(this.serverState?.clientManaged);
     if (state.players && window.playerId && state.players[window.playerId]) {
       const serverPlayer = state.players[window.playerId];
       const serverX = Number(serverPlayer?.x);
       const serverY = Number(serverPlayer?.y);
       if (!this.localPosition) {
         const predicted = this.serverState?.players?.[window.playerId];
-        const baseX = Number.isFinite(predicted?.x) ? predicted.x : serverX;
-        const baseY = Number.isFinite(predicted?.y) ? predicted.y : serverY;
+        let baseX = Number.isFinite(predicted?.x) ? predicted.x : serverX;
+        let baseY = Number.isFinite(predicted?.y) ? predicted.y : serverY;
+        if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
+          baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
+          baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
+        }
         if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
           this.localPosition = { x: baseX, y: baseY };
         }
@@ -264,6 +297,14 @@ export class GameClient {
       for (const key of Array.from(this.remoteMoveSequences.keys())) {
         if (!activePlayers.has(key)) {
           this.remoteMoveSequences.delete(key);
+        }
+      }
+    }
+    if (this.remotePositions && this.serverState?.players) {
+      const activePlayers = new Set(Object.keys(this.serverState.players));
+      for (const key of Array.from(this.remotePositions.keys())) {
+        if (!activePlayers.has(key)) {
+          this.remotePositions.delete(key);
         }
       }
     }
@@ -372,9 +413,15 @@ export class GameClient {
       this.pendingMoves = [];
     }
     if (!this.localPosition) {
-      if (Number.isFinite(me.x) && Number.isFinite(me.y)) {
-        this.localPosition = { x: me.x, y: me.y };
-        this.lastSentPosition = { x: me.x, y: me.y };
+      let baseX = Number(me.x);
+      let baseY = Number(me.y);
+      if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
+        baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
+        baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
+      }
+      if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
+        this.localPosition = { x: baseX, y: baseY };
+        this.lastSentPosition = { x: baseX, y: baseY };
       }
       return;
     }
@@ -385,6 +432,12 @@ export class GameClient {
 
     let targetX = Number(me.x);
     let targetY = Number(me.y);
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+      if (this.localPosition) {
+        targetX = this.localPosition.x;
+        targetY = this.localPosition.y;
+      }
+    }
     if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
       return;
     }
@@ -546,7 +599,15 @@ export class GameClient {
     if (!me) return;
 
     if (!this.localPosition) {
-      this.localPosition = { x: me.x, y: me.y };
+      let baseX = Number(me?.x);
+      let baseY = Number(me?.y);
+      if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
+        baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
+        baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
+      }
+      if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
+        this.localPosition = { x: baseX, y: baseY };
+      }
     }
 
     const movement = this.computeMovementVector();
@@ -597,6 +658,7 @@ export class GameClient {
 
     this.clampLocalPosition();
     this.maybeSendMove(movement.moving);
+    this.maybeRequestRemotePositions(dt);
 
     if (this.isHost && this.localSimulator) {
       this.localSimulator.update(dt);
@@ -625,6 +687,7 @@ export class GameClient {
     }
 
     const displayState = this.cloneState(sourceState);
+    this.applyRemotePositionsToState(displayState);
     if (window.playerId && this.localPosition && displayState.players?.[window.playerId]) {
       displayState.players[window.playerId].x = this.localPosition.x;
       displayState.players[window.playerId].y = this.localPosition.y;
@@ -712,6 +775,36 @@ export class GameClient {
     this.queueUiFromLocal();
   }
 
+  handleMoveAck(payload) {
+    if (!payload || payload.playerId !== window.playerId) {
+      return;
+    }
+    const seq = Number(payload?.seq);
+    if (Number.isFinite(seq) && seq >= 0) {
+      if (seq > this.lastAckedMove) {
+        this.lastAckedMove = seq;
+      }
+      if (Array.isArray(this.pendingMoves)) {
+        this.pendingMoves = this.pendingMoves.filter((move) => {
+          if (!move || !Number.isFinite(Number(move.seq))) {
+            return false;
+          }
+          return Number(move.seq) > this.lastAckedMove;
+        });
+      }
+    }
+    const ackX = Number(payload?.x);
+    const ackY = Number(payload?.y);
+    if (Number.isFinite(ackX) && Number.isFinite(ackY)) {
+      this.applyReconciledPosition(ackX, ackY);
+      this.lastSentPosition = { x: ackX, y: ackY };
+    }
+    const serverTime = Number(payload?.serverTime);
+    if (Number.isFinite(serverTime) && serverTime > this.lastServerTime) {
+      this.lastServerTime = serverTime;
+    }
+  }
+
   handleClientInteract(payload) {
     if (!this.isHost || !this.localSimulator) {
       return;
@@ -767,18 +860,18 @@ export class GameClient {
   maybeSendMove(moving) {
     if (!this.localPosition || !window.roomName || !window.playerId) return;
     const now = performance.now();
-    const targetInterval = 250;
-    const shouldSendByTime = moving && now - this.lastMoveSent >= targetInterval;
-    let shouldSendByDistance = false;
-    if (this.lastSentPosition) {
-      const dx = this.localPosition.x - this.lastSentPosition.x;
-      const dy = this.localPosition.y - this.lastSentPosition.y;
-      shouldSendByDistance = dx * dx + dy * dy > 4;
-    } else {
-      shouldSendByDistance = true;
-    }
+    const elapsed = now - this.lastMoveSent;
+    const interval = this.moveSendIntervalMs;
+    const shouldSendInitial = !this.lastSentPosition;
+    const shouldSendTimed = moving && elapsed >= interval;
+    const shouldSendOnStop =
+      !moving &&
+      elapsed >= interval &&
+      this.lastSentPosition &&
+      (Math.abs(this.localPosition.x - this.lastSentPosition.x) > 0.5 ||
+        Math.abs(this.localPosition.y - this.lastSentPosition.y) > 0.5);
 
-    if (!shouldSendByTime && !shouldSendByDistance) {
+    if (!(shouldSendInitial || shouldSendTimed || shouldSendOnStop)) {
       return;
     }
 
@@ -794,6 +887,103 @@ export class GameClient {
       y: this.localPosition.y,
       seq,
     });
+  }
+
+  maybeRequestRemotePositions(dt) {
+    if (!window.roomName || !this.serverState) {
+      return;
+    }
+    const players = this.serverState.players || {};
+    const targets = Object.keys(players).filter((pid) => pid && pid !== window.playerId);
+    if (!targets.length) {
+      this.positionRequestTimer = 0;
+      return;
+    }
+    this.positionRequestTimer += dt;
+    if (this.positionRequestTimer < this.positionRequestInterval) {
+      return;
+    }
+    this.positionRequestTimer = 0;
+    this.socket.emit(
+      'request_positions',
+      { room: window.roomName, players: targets },
+      (response) => this.handlePositionResponse(response)
+    );
+  }
+
+  handlePositionResponse(response) {
+    if (!response || typeof response !== 'object') {
+      return;
+    }
+    const positions = response.players;
+    this.updateRemotePositions(positions);
+    const serverTime = Number(response?.serverTime);
+    if (Number.isFinite(serverTime) && serverTime > this.lastServerTime) {
+      this.lastServerTime = serverTime;
+    }
+  }
+
+  updateRemotePositions(positions) {
+    if (!positions || typeof positions !== 'object') {
+      return;
+    }
+    if (!this.remotePositions) {
+      this.remotePositions = new Map();
+    }
+    Object.entries(positions).forEach(([pid, value]) => {
+      if (!pid || pid === window.playerId) {
+        return;
+      }
+      const x = Number(value?.x);
+      const y = Number(value?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return;
+      }
+      this.remotePositions.set(pid, { x, y, timestamp: performance.now() });
+      if (this.serverState?.players?.[pid]) {
+        const player = this.serverState.players[pid];
+        player.x = x;
+        player.y = y;
+        if (player.currentItem) {
+          player.currentItem.x = x;
+          player.currentItem.y = y;
+        }
+      }
+    });
+    if (this.serverState?.players) {
+      const active = new Set(Object.keys(this.serverState.players));
+      for (const key of Array.from(this.remotePositions.keys())) {
+        if (!active.has(key)) {
+          this.remotePositions.delete(key);
+        }
+      }
+    }
+  }
+
+  applyRemotePositionsToState(state) {
+    if (!state || !state.players || !this.remotePositions) {
+      return;
+    }
+    for (const [pid, info] of this.remotePositions.entries()) {
+      if (pid === window.playerId) {
+        continue;
+      }
+      const player = state.players[pid];
+      if (!player) {
+        continue;
+      }
+      const x = Number(info?.x);
+      const y = Number(info?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      player.x = x;
+      player.y = y;
+      if (player.currentItem) {
+        player.currentItem.x = x;
+        player.currentItem.y = y;
+      }
+    }
   }
 
   cloneState(state) {
