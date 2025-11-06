@@ -185,7 +185,7 @@ def flush_dirty():
         _emit_room_state(room)
 
 
-def schedule_flush(delay: float = 1 / 5):
+def schedule_flush(delay: float = 0.25):
     global _flush_pending
     with _flush_lock:
         if _flush_pending:
