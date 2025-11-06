@@ -26,8 +26,13 @@ export class Renderer {
     this.renderBackground();
     if (!state) return;
 
-    this.renderStaticObstacles(state.config?.staticObstacles || []);
-    this.renderMovingObstacles(state.config?.movingObstacles || []);
+    const staticObstacles = Array.isArray(state.config?.staticObstacles)
+      ? state.config.staticObstacles
+      : [];
+    const migrated = Array.isArray(state.config?.movingObstacles)
+      ? state.config.movingObstacles
+      : [];
+    this.renderStaticObstacles([...staticObstacles, ...migrated]);
     this.renderFoodGenerators(state.config?.foodGenerators || []);
     this.renderTransferPads(state.config?.transferObjects || []);
     this.renderActionZones(state.config?.actionZones || []);
@@ -193,16 +198,6 @@ export class Renderer {
       if (!drawn) {
         this.fillZone(ob, 'rgba(120, 144, 156, 0.5)');
         this.strokeZone(ob, { color: 'rgba(55, 71, 79, 0.6)', width: 2 });
-      }
-    });
-  }
-
-  renderMovingObstacles(obstacles) {
-    obstacles.forEach((ob) => {
-      const drawn = this.drawZoneTexture(ob, ob.texture || 'moving_obstacle');
-      if (!drawn) {
-        this.fillZone(ob, 'rgba(38, 166, 154, 0.45)');
-        this.strokeZone(ob, { color: 'rgba(0, 150, 136, 0.75)', width: 2 });
       }
     });
   }

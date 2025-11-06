@@ -629,7 +629,7 @@ def _gather_obstacle_entries(cfg: dict) -> list:
             entries.append({'obstacle': obstacle, 'pushable': False, 'zones': _attached_zones(cfg, obstacle)})
     for obstacle in cfg.get('movingObstacles') or []:
         if isinstance(obstacle, dict):
-            entries.append({'obstacle': obstacle, 'pushable': True, 'zones': _attached_zones(cfg, obstacle)})
+            entries.append({'obstacle': obstacle, 'pushable': False, 'zones': _attached_zones(cfg, obstacle)})
     return entries
 
 

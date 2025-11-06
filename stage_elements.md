@@ -11,8 +11,7 @@ The stage configuration JSON supports the following keys. These values control b
   - `display` – text shown while working
   - `occupied` – whether currently in use
 - `deliveryZone` – zone where dishes are delivered. Contains `x`, `y`, `width`, `height`
-- `movingObstacles` – array of moving obstacles. Each obstacle has `x`, `y`, `width` and `height`
-- `staticObstacles` – array of static obstacles. Each obstacle has `x`, `y`, `width` and `height`
+- `staticObstacles` – array of obstacles. Each obstacle has `x`, `y`, `width` and `height`
 - `foodGenerators` – list of generators that spawn ingredients. Each entry has `x`, `y`, `width`, `height` and `nextFood`
 - `transferObjects` – list of teleporters. Each entry has `sourceZone` and `destination`, both with `x`, `y`, `width`, `height`
 - `customItems` – definitions for additional items
