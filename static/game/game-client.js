@@ -214,6 +214,7 @@ export class GameClient {
     this.serverState = cloned;
     this.applyPendingActionPredictions();
     this.reconcileLocalPrediction(this.serverState, Number.isFinite(ackSeq) ? ackSeq : null);
+    const hasPendingMoves = Array.isArray(this.pendingMoves) && this.pendingMoves.length > 0;
     const isClientManaged = Boolean(this.serverState?.clientManaged);
     if (state.players && window.playerId && state.players[window.playerId]) {
       const serverPlayer = state.players[window.playerId];
@@ -226,7 +227,12 @@ export class GameClient {
         if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
           this.localPosition = { x: baseX, y: baseY };
         }
-      } else if (!this.isHost && Number.isFinite(serverX) && Number.isFinite(serverY)) {
+      } else if (
+        !this.isHost &&
+        !hasPendingMoves &&
+        Number.isFinite(serverX) &&
+        Number.isFinite(serverY)
+      ) {
         const dx = this.localPosition.x - serverX;
         const dy = this.localPosition.y - serverY;
         if (dx * dx + dy * dy > 36) {
