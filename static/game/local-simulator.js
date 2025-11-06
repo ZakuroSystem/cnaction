@@ -565,7 +565,8 @@ function resolveAxis(entries, currentX, currentY, targetValue, axis) {
     }
 
     if (delta > 0) {
-      let limit = metrics.left - PLAYER_RADIUS;
+      const limitKey = axis === 'x' ? 'left' : 'top';
+      let limit = metrics[limitKey] - PLAYER_RADIUS;
       if (candidate <= limit + COLLISION_EPSILON) {
         continue;
       }
@@ -584,11 +585,12 @@ function resolveAxis(entries, currentX, currentY, targetValue, axis) {
           obstaclesMoved = true;
         }
         const updated = obstacleMetrics(obstacle);
-        limit = updated.left - PLAYER_RADIUS;
+        limit = updated[limitKey] - PLAYER_RADIUS;
       }
       candidate = Math.min(candidate, limit);
     } else if (delta < 0) {
-      let limit = metrics.right + PLAYER_RADIUS;
+      const limitKey = axis === 'x' ? 'right' : 'bottom';
+      let limit = metrics[limitKey] + PLAYER_RADIUS;
       if (candidate >= limit - COLLISION_EPSILON) {
         continue;
       }
@@ -607,7 +609,7 @@ function resolveAxis(entries, currentX, currentY, targetValue, axis) {
           obstaclesMoved = true;
         }
         const updated = obstacleMetrics(obstacle);
-        limit = updated.right + PLAYER_RADIUS;
+        limit = updated[limitKey] + PLAYER_RADIUS;
       }
       candidate = Math.max(candidate, limit);
     }
