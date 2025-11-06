@@ -42,6 +42,7 @@ dirty_flags: Dict[str, bool] = {}
 sid_to_player: Dict[str, Tuple[str, str]] = {}
 
 _socketio: Optional[SocketIO] = None
+_dirty_lock = Lock()
 _flush_lock = Lock()
 _flush_pending = False
 
@@ -142,8 +143,6 @@ def serialize_room_state(rs: RoomState) -> dict:
 # ─────────────────────────────────────────
 # ユーティリティ関数
 # ─────────────────────────────────────────
-_flush_lock = Lock()
-_flush_pending = False
 
 
 def _room_lock(rs: RoomState) -> RLock:
@@ -154,20 +153,36 @@ def _room_lock(rs: RoomState) -> RLock:
     return lock
 
 
-def mark_dirty(room: str):
-    dirty_flags[room] = True
-    schedule_flush()
+def _emit_room_state(room: str) -> bool:
+    rs = rooms.get(room)
+    if not rs:
+        with _dirty_lock:
+            dirty_flags.pop(room, None)
+        return False
+
+    state = serialize_room_state(rs)
+    state['serverTime'] = time.time()
+    _require_socketio().emit('state_update', state, room=room)
+
+    with _dirty_lock:
+        dirty_flags.pop(room, None)
+    return True
+
+
+def mark_dirty(room: str, immediate: bool = False):
+    with _dirty_lock:
+        dirty_flags[room] = True
+    if immediate:
+        _emit_room_state(room)
+    else:
+        schedule_flush()
 
 
 def flush_dirty():
-    for room in list(dirty_flags.keys()):
-        if room not in rooms:
-            dirty_flags.pop(room, None)
-            continue
-        state = serialize_room_state(rooms[room])
-        state['serverTime'] = time.time()
-        _require_socketio().emit('state_update', state, room=room)
-        dirty_flags.pop(room, None)
+    with _dirty_lock:
+        pending_rooms = list(dirty_flags.keys())
+    for room in pending_rooms:
+        _emit_room_state(room)
 
 
 def schedule_flush(delay: float = 1 / 5):
@@ -396,7 +411,7 @@ def _remove_world_item(
             if clear_cooking and item_id is not None:
                 cleared = _clear_cooking_task_for_item(rs, item_id)
                 if cleared and room:
-                    mark_dirty(room)
+                    mark_dirty(room, immediate=True)
             return None
         lookup.pop(item.id, None)
         try:
@@ -411,7 +426,7 @@ def _remove_world_item(
                 getattr(item, 'state', None),
             )
             if cleared and room:
-                mark_dirty(room)
+                mark_dirty(room, immediate=True)
         return item
 
 
@@ -854,7 +869,7 @@ def release_cooking_task_for_item(rs: RoomState, room: Optional[str], item: Opti
         getattr(item, 'state', None),
     )
     if cleared and room:
-        mark_dirty(room)
+        mark_dirty(room, immediate=True)
     return cleared
 
 
