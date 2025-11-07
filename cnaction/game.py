@@ -547,22 +547,35 @@ def apply_client_state(room: str, snapshot: dict):
         new_players: Dict[str, Player] = {}
         for pid, pdata in players.items():
             existing = rs.players.get(pid, Player(base_image=pid, image=pid))
-            existing.x = _coerce_float(pdata.get('x'), existing.x)
-            existing.y = _coerce_float(pdata.get('y'), existing.y)
-            if pdata.get('base_image'):
-                existing.base_image = str(pdata.get('base_image'))
-            if pdata.get('image'):
-                existing.image = str(pdata.get('image'))
+            current_seq = getattr(existing, 'lastMoveSeq', 0)
+            is_new_player = pid not in rs.players
             try:
                 seq = int(pdata.get('lastMoveSeq'))
             except (TypeError, ValueError):
                 seq = None
-            if seq is not None and seq >= 0:
-                existing.lastMoveSeq = seq
+
+            allow_position_update = is_new_player
+            if seq is not None and seq >= current_seq:
+                allow_position_update = True
+            elif seq is None and not is_new_player:
+                # A missing sequence for an existing player most likely means the
+                # snapshot is stale. Avoid overriding the authoritative position
+                # that was produced by the player's own input.
+                allow_position_update = False
+
+            if allow_position_update:
+                existing.x = _coerce_float(pdata.get('x'), existing.x)
+                existing.y = _coerce_float(pdata.get('y'), existing.y)
             try:
                 action_seq = int(pdata.get('lastActionSeq'))
             except (TypeError, ValueError):
                 action_seq = None
+            if seq is not None and seq >= 0 and allow_position_update:
+                existing.lastMoveSeq = seq
+            if pdata.get('base_image'):
+                existing.base_image = str(pdata.get('base_image'))
+            if pdata.get('image'):
+                existing.image = str(pdata.get('image'))
             if action_seq is not None and action_seq >= 0:
                 existing.lastActionSeq = action_seq
             item_payload = pdata.get('currentItem')
