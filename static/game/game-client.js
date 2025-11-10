@@ -252,38 +252,8 @@ export class GameClient {
     this.applyRemotePositionsToState(this.serverState);
     this.applyPendingActionPredictions();
     this.reconcileLocalPrediction(this.serverState, Number.isFinite(ackSeq) ? ackSeq : null);
-    const hasPendingMoves = Array.isArray(this.pendingMoves) && this.pendingMoves.length > 0;
-    if (state.players && window.playerId && state.players[window.playerId]) {
-      const serverPlayer = state.players[window.playerId];
-      const serverX = toFiniteNumber(serverPlayer?.x);
-      const serverY = toFiniteNumber(serverPlayer?.y);
-      if (!this.localPosition) {
-        const predicted = this.serverState?.players?.[window.playerId];
-        let baseX = Number.isFinite(predicted?.x) ? predicted.x : serverX;
-        let baseY = Number.isFinite(predicted?.y) ? predicted.y : serverY;
-        if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
-          baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
-          baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
-        }
-        if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
-          this.localPosition = { x: baseX, y: baseY };
-        }
-      } else if (
-        !this.isHost &&
-        !hasPendingMoves &&
-        Number.isFinite(serverX) &&
-        Number.isFinite(serverY)
-      ) {
-        const dx = this.localPosition.x - serverX;
-        const dy = this.localPosition.y - serverY;
-        if (dx * dx + dy * dy > 36) {
-          this.applyReconciledPosition(serverX, serverY);
-          this.lastSentPosition = { x: serverX, y: serverY };
-        }
-      }
-      if (!this.lastSentPosition && this.localPosition) {
-        this.lastSentPosition = { x: this.localPosition.x, y: this.localPosition.y };
-      }
+    if (!this.lastSentPosition && this.localPosition) {
+      this.lastSentPosition = { x: this.localPosition.x, y: this.localPosition.y };
     }
 
     if (this.isHost) {
@@ -431,42 +401,11 @@ export class GameClient {
         this.localPosition = { x: baseX, y: baseY };
         this.lastSentPosition = { x: baseX, y: baseY };
       }
-      return;
     }
 
     if (Number.isFinite(ackSeq)) {
       this.pendingMoves = this.pendingMoves.filter((move) => move && move.seq > ackSeq);
     }
-
-    let targetX = toFiniteNumber(me?.x);
-    let targetY = toFiniteNumber(me?.y);
-    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
-      if (this.localPosition) {
-        targetX = this.localPosition.x;
-        targetY = this.localPosition.y;
-      }
-    }
-    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
-      return;
-    }
-
-    if (this.pendingMoves.length) {
-      const simPlayer = this.clonePlayer(me) || { x: targetX, y: targetY };
-      const simState = { config: state.config || null };
-      for (const move of this.pendingMoves) {
-        if (!move) continue;
-        const mx = toFiniteNumber(move?.x);
-        const my = toFiniteNumber(move?.y);
-        if (!Number.isFinite(mx) || !Number.isFinite(my)) continue;
-        resolvePlayerMovement(simState, simPlayer, mx, my);
-      }
-      targetX = simPlayer.x;
-      targetY = simPlayer.y;
-    } else if (Number.isFinite(ackSeq)) {
-      this.lastSentPosition = { x: targetX, y: targetY };
-    }
-
-    this.applyReconciledPosition(targetX, targetY);
   }
 
   applyReconciledPosition(x, y) {
@@ -802,12 +741,6 @@ export class GameClient {
           return Number(move.seq) > this.lastAckedMove;
         });
       }
-    }
-    const ackX = toFiniteNumber(payload?.x);
-    const ackY = toFiniteNumber(payload?.y);
-    if (Number.isFinite(ackX) && Number.isFinite(ackY)) {
-      this.applyReconciledPosition(ackX, ackY);
-      this.lastSentPosition = { x: ackX, y: ackY };
     }
     const serverTime = Number(payload?.serverTime);
     if (Number.isFinite(serverTime) && serverTime > this.lastServerTime) {
