@@ -615,6 +615,12 @@ function resolveAxis(entries, currentX, currentY, targetValue, axis) {
     }
   }
 
+  if (delta > 0) {
+    candidate = Math.max(candidate, start);
+  } else if (delta < 0) {
+    candidate = Math.min(candidate, start);
+  }
+
   if (axis === 'x') {
     candidate = clamp(candidate, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS);
   } else {
