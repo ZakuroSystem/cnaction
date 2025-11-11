@@ -1,7 +1,28 @@
-import { GameClient } from './game/game-client.js';
-
 const socket = io();
 let gameClient = null;
+
+let GameClientCtorPromise = null;
+
+function getGameClientModuleUrl() {
+  const moduleUrl = new URL('./game/game-client.js', import.meta.url);
+  const version = new URL(import.meta.url).searchParams.get('v');
+  if (version) {
+    moduleUrl.searchParams.set('v', version);
+  }
+  return moduleUrl.href;
+}
+
+function loadGameClientCtor() {
+  if (!GameClientCtorPromise) {
+    GameClientCtorPromise = import(getGameClientModuleUrl())
+      .then((mod) => mod.GameClient)
+      .catch((error) => {
+        GameClientCtorPromise = null;
+        throw error;
+      });
+  }
+  return GameClientCtorPromise;
+}
 
 function ensureDefaults() {
   if (!window.roomName) {
@@ -18,7 +39,8 @@ function disposeClient(expected) {
   }
 }
 
-function setupClient(container, socketInstance) {
+async function setupClient(container, socketInstance) {
+  const GameClient = await loadGameClientCtor();
   const nextClient = new GameClient(container, socketInstance, () => {
     disposeClient(nextClient);
   });
@@ -28,7 +50,7 @@ function setupClient(container, socketInstance) {
   nextClient.start();
 }
 
-window.startGame = function startGame() {
+window.startGame = async function startGame() {
   ensureDefaults();
 
   const container = document.getElementById('game-container');
@@ -48,7 +70,7 @@ window.startGame = function startGame() {
     window.gameClient.destroy();
   }
 
-  setupClient(container, socket);
+  await setupClient(container, socket);
 };
 
 function bindStartButton() {
@@ -59,7 +81,9 @@ function bindStartButton() {
   button.addEventListener('click', () => {
     window.roomName = roomInput?.value || 'room1';
     window.playerId = '';
-    window.startGame();
+    window
+      .startGame()
+      .catch((error) => console.error('ゲームの開始に失敗しました。', error));
   });
 }
 
@@ -72,7 +96,9 @@ function bindRoomInput() {
       event.preventDefault();
       window.roomName = roomInput.value || 'room1';
       window.playerId = '';
-      window.startGame();
+      window
+        .startGame()
+        .catch((error) => console.error('ゲームの開始に失敗しました。', error));
     }
   });
 }
