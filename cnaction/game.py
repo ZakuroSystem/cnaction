@@ -765,6 +765,8 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
         if delta > 0:
             limit_key = 'left' if axis == 'x' else 'top'
             limit = metrics[limit_key] - PLAYER_RADIUS
+            if start > limit + COLLISION_EPSILON:
+                continue
             if candidate <= limit + COLLISION_EPSILON:
                 continue
             if pushable:
@@ -785,6 +787,8 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
         else:
             limit_key = 'right' if axis == 'x' else 'bottom'
             limit = metrics[limit_key] + PLAYER_RADIUS
+            if start < limit - COLLISION_EPSILON:
+                continue
             if candidate >= limit - COLLISION_EPSILON:
                 continue
             if pushable:
