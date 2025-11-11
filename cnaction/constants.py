@@ -12,3 +12,7 @@ PLAYFIELD_WIDTH = 800
 PLAYFIELD_HEIGHT = 600
 PLAYER_RADIUS = 32
 COLLISION_EPSILON = 1e-6
+
+# State updates are sent to connected clients at this interval to maintain a
+# responsive gameplay experience.
+STATE_UPDATE_INTERVAL = 0.1
