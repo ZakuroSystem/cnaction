@@ -62,6 +62,7 @@ export class GameClient {
     this.predictionSimulator = null;
     this.moveSendIntervalMs = 200;
     this.remotePositions = new Map();
+    this.remoteSmoothingWindowMs = 400;
     this.positionRequestInterval = 0.2;
     this.positionRequestTimer = 0;
     this.initialSpawn = null;
@@ -873,6 +874,8 @@ export class GameClient {
     if (!this.remotePositions) {
       this.remotePositions = new Map();
     }
+    const now = performance.now();
+    const windowMs = Number(this.remoteSmoothingWindowMs) || 0;
     Object.entries(positions).forEach(([pid, value]) => {
       if (!pid || pid === window.playerId) {
         return;
@@ -882,14 +885,32 @@ export class GameClient {
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return;
       }
-      this.remotePositions.set(pid, { x, y, timestamp: performance.now() });
+      const existing = this.remotePositions.get(pid) || { samples: [] };
+      existing.samples = Array.isArray(existing.samples) ? existing.samples : [];
+      existing.samples.push({ x, y, timestamp: now });
+      const cutoff = windowMs > 0 ? now - windowMs : -Infinity;
+      existing.samples = existing.samples.filter((sample) => sample.timestamp >= cutoff);
+      if (!existing.samples.length) {
+        existing.samples.push({ x, y, timestamp: now });
+      }
+      let sumX = 0;
+      let sumY = 0;
+      for (const sample of existing.samples) {
+        sumX += sample.x;
+        sumY += sample.y;
+      }
+      const count = existing.samples.length || 1;
+      existing.x = sumX / count;
+      existing.y = sumY / count;
+      existing.timestamp = now;
+      this.remotePositions.set(pid, existing);
       if (this.serverState?.players?.[pid]) {
         const player = this.serverState.players[pid];
-        player.x = x;
-        player.y = y;
+        player.x = existing.x;
+        player.y = existing.y;
         if (player.currentItem) {
-          player.currentItem.x = x;
-          player.currentItem.y = y;
+          player.currentItem.x = existing.x;
+          player.currentItem.y = existing.y;
         }
       }
     });
