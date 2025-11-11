@@ -33,6 +33,7 @@ from .constants import (
     PLAYER_RADIUS,
     PLAYFIELD_HEIGHT,
     PLAYFIELD_WIDTH,
+    STATE_UPDATE_INTERVAL,
 )
 from .values import coerce_float, coerce_int, normalize_uuid_list
 
@@ -215,7 +216,7 @@ def flush_dirty():
         _emit_room_state(room)
 
 
-def schedule_flush(delay: float = 0.25):
+def schedule_flush(delay: float = STATE_UPDATE_INTERVAL):
     global _flush_pending
     with _flush_lock:
         if _flush_pending:
@@ -765,7 +766,7 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
         if delta > 0:
             limit_key = 'left' if axis == 'x' else 'top'
             limit = metrics[limit_key] - PLAYER_RADIUS
-            if candidate <= limit + COLLISION_EPSILON:
+            if candidate <= limit:
                 continue
             if pushable:
                 desired = candidate - limit
@@ -785,7 +786,7 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
         else:
             limit_key = 'right' if axis == 'x' else 'bottom'
             limit = metrics[limit_key] + PLAYER_RADIUS
-            if candidate >= limit - COLLISION_EPSILON:
+            if candidate >= limit:
                 continue
             if pushable:
                 desired = candidate - limit
