@@ -1,5 +1,6 @@
 const socket = io();
 let gameClient = null;
+let matchMode = 'auto';
 
 let GameClientCtorPromise = null;
 
@@ -25,9 +26,28 @@ function loadGameClientCtor() {
 }
 
 function ensureDefaults() {
-  if (!window.roomName) {
+  if (!window.autoMatch && !window.roomName) {
     window.roomName = 'room1';
   }
+  if (typeof window.autoMatch !== 'boolean') {
+    window.autoMatch = false;
+  }
+  if (typeof window.autoMatchRoomHint !== 'string') {
+    window.autoMatchRoomHint = '';
+  }
+}
+
+function applyMatchSelections(roomInput) {
+  const value = roomInput?.value?.trim();
+  if (matchMode === 'manual') {
+    window.autoMatch = false;
+    window.roomName = value || 'room1';
+    window.autoMatchRoomHint = '';
+    return;
+  }
+  window.autoMatch = true;
+  window.autoMatchRoomHint = value || '';
+  window.roomName = '';
 }
 
 function disposeClient(expected) {
@@ -79,7 +99,7 @@ function bindStartButton() {
   if (!button) return;
 
   button.addEventListener('click', () => {
-    window.roomName = roomInput?.value || 'room1';
+    applyMatchSelections(roomInput);
     window.playerId = '';
     window
       .startGame()
@@ -92,9 +112,9 @@ function bindRoomInput() {
   if (!roomInput) return;
 
   roomInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && matchMode === 'manual') {
       event.preventDefault();
-      window.roomName = roomInput.value || 'room1';
+      applyMatchSelections(roomInput);
       window.playerId = '';
       window
         .startGame()
@@ -103,7 +123,46 @@ function bindRoomInput() {
   });
 }
 
+function setMatchMode(mode) {
+  matchMode = mode === 'manual' ? 'manual' : 'auto';
+  const roomField = document.getElementById('roomNameField');
+  const hint = document.getElementById('matchModeHint');
+  if (matchMode === 'manual') {
+    roomField?.removeAttribute('hidden');
+    if (hint) {
+      hint.textContent = '参加するルーム名を入力してください。';
+    }
+    return;
+  }
+  roomField?.setAttribute('hidden', 'true');
+  if (hint) {
+    hint.textContent = '空いているルームに自動で参加します。';
+  }
+}
+
+function bindMatchModeToggle() {
+  const radios = document.querySelectorAll('input[name="matchMode"]');
+  if (!radios.length) {
+    return;
+  }
+
+  let initial = 'auto';
+  radios.forEach((radio) => {
+    if (radio.checked) {
+      initial = radio.value;
+    }
+    radio.addEventListener('change', (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.checked) {
+        setMatchMode(event.target.value);
+      }
+    });
+  });
+
+  setMatchMode(initial);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  bindMatchModeToggle();
   bindStartButton();
   bindRoomInput();
 });

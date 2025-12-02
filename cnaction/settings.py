@@ -29,6 +29,7 @@ class AppSettings:
     upload_password: str = "1234"
     allowed_upload_extensions: Set[str] = field(default_factory=lambda: set(DEFAULT_ALLOWED_EXTENSIONS))
     default_room: str = "room1"
+    auto_match_max_players: int = 4
 
     @classmethod
     def from_env(
@@ -45,6 +46,14 @@ class AppSettings:
         secret_key = values.get("CNACTION_SECRET_KEY", cls.secret_key)
         upload_password = values.get("CNACTION_UPLOAD_PASSWORD", cls.upload_password)
         default_room = values.get("CNACTION_DEFAULT_ROOM", cls.default_room)
+        auto_match_raw = values.get("CNACTION_AUTOMATCH_MAX_PLAYERS")
+        if auto_match_raw is not None:
+            try:
+                auto_match_max_players = int(auto_match_raw)
+            except ValueError:
+                auto_match_max_players = cls.auto_match_max_players
+        else:
+            auto_match_max_players = cls.auto_match_max_players
 
         def _path(var: str, default: Path) -> Path:
             raw = values.get(var)
@@ -72,6 +81,7 @@ class AppSettings:
             upload_password=upload_password,
             allowed_upload_extensions=allowed,
             default_room=default_room,
+            auto_match_max_players=auto_match_max_players,
         )
 
 

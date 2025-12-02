@@ -114,8 +114,21 @@ export class GameClient {
     this.socket.on('client_move', this.boundClientMove);
     this.socket.on('move_ack', this.boundMoveAck);
 
-    const payload = { room: String(window.roomName || 'room1') };
+    const payload = {};
+    if (window.autoMatch) {
+      payload.autoMatch = true;
+      if (window.autoMatchRoomHint) {
+        payload.preferredRoom = String(window.autoMatchRoomHint);
+      }
+    } else {
+      payload.room = String(window.roomName || 'room1');
+    }
     this.socket.emit('join', payload, (data) => {
+      if (data && typeof data.room === 'string' && data.room) {
+        window.roomName = data.room;
+      }
+      window.autoMatch = Boolean(payload.autoMatch);
+      window.autoMatchRoomHint = '';
       window.playerId = data.playerId;
       this.isHost = Boolean(data?.isHost);
       if (this.isHost && !this.localSimulator) {
