@@ -14,8 +14,11 @@ export class MobileControls {
       right: ['ArrowRight', 'KeyD'],
     };
     this.activeDirection = null;
-    this.dpadPointerId = null;
-    this.dpadBounds = null;
+    this.movementPointerId = null;
+    this.enabled = false;
+    this.boundPointerDown = (event) => this.handlePointerDown(event);
+    this.boundPointerMove = (event) => this.handlePointerMove(event);
+    this.boundPointerUp = (event) => this.handlePointerUp(event);
 
     if (!this.container) {
       return;
@@ -31,120 +34,116 @@ export class MobileControls {
       }
     }
 
-    this.bindButtons();
+    this.bindActionButton();
+    this.bindTouchMovement();
     this.updateVisibility();
   }
 
-  bindButtons() {
-    Object.keys(this.directionMap).forEach((action) => this.bindMovement(action));
-    this.bindDpadGestures();
-
+  bindActionButton() {
     const interact = this.container?.querySelector('[data-action="interact"]');
-    if (interact) {
-      const onDown = (event) => {
-        event.preventDefault();
-        interact.classList.add('is-active');
-        this.game.emitInteract();
-      };
-      const onUp = (event) => {
-        event.preventDefault();
-        interact.classList.remove('is-active');
-      };
-      this.addListener(interact, 'pointerdown', onDown, { passive: false });
-      ['pointerup', 'pointerleave', 'pointercancel', 'pointerout'].forEach((type) => {
-        this.addListener(interact, type, onUp, { passive: false });
-      });
-    }
-  }
-
-  bindMovement(action) {
-    const button = this.container?.querySelector(`[data-action="${action}"]`);
-    if (!button) return;
-
-    const onDown = (event) => {
-      event.preventDefault();
-      this.engageDirection(action);
-    };
-    const onUp = (event) => {
-      event.preventDefault();
-      if (this.activeDirection === action) {
-        this.clearDirection();
-      }
-    };
-
-    this.addListener(button, 'pointerdown', onDown, { passive: false });
-    ['pointerup', 'pointerleave', 'pointercancel', 'pointerout'].forEach((type) => {
-      this.addListener(button, type, onUp, { passive: false });
-    });
-  }
-
-  bindDpadGestures() {
-    const dpad = this.container?.querySelector('.mobile-controls__cluster--dpad');
-    if (!dpad) return;
-
-    const onPointerDown = (event) => {
-      event.preventDefault();
-      this.dpadPointerId = event.pointerId;
-      this.dpadBounds = dpad.getBoundingClientRect();
-      if (dpad.setPointerCapture && event.pointerId !== undefined) {
-        try {
-          dpad.setPointerCapture(event.pointerId);
-        } catch (error) {
-          console.warn('[MobileControls] failed to capture pointer', error);
-        }
-      }
-      this.updateDirectionFromPoint(event);
-    };
-
-    const onPointerMove = (event) => {
-      if (this.dpadPointerId !== event.pointerId) return;
-      event.preventDefault();
-      this.updateDirectionFromPoint(event);
-    };
-
-    const onPointerUp = (event) => {
-      if (this.dpadPointerId !== event.pointerId) return;
-      event.preventDefault();
-      if (dpad.releasePointerCapture && event.pointerId !== undefined) {
-        try {
-          dpad.releasePointerCapture(event.pointerId);
-        } catch (error) {
-          console.warn('[MobileControls] failed to release pointer', error);
-        }
-      }
-      this.dpadPointerId = null;
-      this.clearDirection();
-    };
-
-    this.addListener(dpad, 'pointerdown', onPointerDown, { passive: false });
-    this.addListener(dpad, 'pointermove', onPointerMove, { passive: false });
-    ['pointerup', 'pointercancel', 'pointerleave', 'pointerout'].forEach((type) => {
-      this.addListener(dpad, type, onPointerUp, { passive: false });
-    });
-  }
-
-  updateDirectionFromPoint(event) {
-    if (!this.dpadBounds) return;
-    const { left, top, width, height } = this.dpadBounds;
-    const centerX = left + width / 2;
-    const centerY = top + height / 2;
-    const x = event.clientX - centerX;
-    const y = event.clientY - centerY;
-    const deadZone = Math.min(width, height) * 0.18;
-
-    if (Math.abs(x) < deadZone && Math.abs(y) < deadZone) {
-      this.clearDirection();
+    if (!interact) {
       return;
     }
 
-    let direction;
-    if (Math.abs(x) > Math.abs(y)) {
-      direction = x > 0 ? 'right' : 'left';
-    } else {
-      direction = y > 0 ? 'down' : 'up';
+    const onDown = (event) => {
+      event.preventDefault();
+      interact.classList.add('is-active');
+      this.game.emitInteract();
+    };
+    const onUp = (event) => {
+      event.preventDefault();
+      interact.classList.remove('is-active');
+    };
+
+    this.addListener(interact, 'pointerdown', onDown, { passive: false });
+    ['pointerup', 'pointerleave', 'pointercancel', 'pointerout'].forEach((type) => {
+      this.addListener(interact, type, onUp, { passive: false });
+    });
+  }
+
+  bindTouchMovement() {
+    const options = { passive: false };
+    this.addListener(document, 'pointerdown', this.boundPointerDown, options);
+    this.addListener(document, 'pointermove', this.boundPointerMove, options);
+    ['pointerup', 'pointercancel'].forEach((type) => {
+      this.addListener(document, type, this.boundPointerUp, options);
+    });
+  }
+
+  handlePointerDown(event) {
+    if (!this.enabled) {
+      return;
+    }
+    if (event.pointerType === 'mouse') {
+      return;
+    }
+    const interact = this.container?.querySelector('[data-action="interact"]');
+    if (interact && interact.contains(event.target)) {
+      return;
+    }
+    if (this.movementPointerId && this.movementPointerId !== event.pointerId) {
+      return;
+    }
+    this.movementPointerId = event.pointerId;
+    event.preventDefault();
+    this.updateDirectionFromPoint(event);
+  }
+
+  handlePointerMove(event) {
+    if (!this.enabled || this.movementPointerId !== event.pointerId) {
+      return;
+    }
+    if (event.pointerType === 'mouse') {
+      return;
+    }
+    event.preventDefault();
+    this.updateDirectionFromPoint(event);
+  }
+
+  handlePointerUp(event) {
+    if (!this.enabled || this.movementPointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    this.movementPointerId = null;
+    this.clearDirection();
+  }
+
+  updateDirectionFromPoint(event) {
+    const direction = this.resolveDirection(event);
+    if (!direction) {
+      this.clearDirection();
+      return;
+    }
+    this.engageDirection(direction);
+  }
+
+  resolveDirection(event) {
+    const width = window.innerWidth || document.documentElement.clientWidth || 0;
+    const height = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!width || !height) {
+      return null;
     }
 
-    this.engageDirection(direction);
+    const x = event.clientX;
+    const y = event.clientY;
+    const bottomThreshold = height * 0.3;
+    const topThreshold = height * 0.3;
+    const horizontalMargin = width * 0.35;
+
+    if (y >= height - bottomThreshold) {
+      return 'down';
+    }
+    if (y <= topThreshold) {
+      return 'up';
+    }
+    if (x >= width - horizontalMargin) {
+      return 'right';
+    }
+    if (x <= horizontalMargin) {
+      return 'left';
+    }
+    return null;
   }
 
   engageDirection(action) {
@@ -159,12 +158,10 @@ export class MobileControls {
       this.directionMap[this.activeDirection].forEach((code) =>
         this.game.setKeyState(code, false)
       );
-      this.toggleButtonState(this.activeDirection, false);
     }
 
     this.activeDirection = action;
     this.directionMap[action].forEach((code) => this.game.setKeyState(code, true));
-    this.toggleButtonState(action, true);
   }
 
   clearDirection() {
@@ -174,14 +171,7 @@ export class MobileControls {
     this.directionMap[this.activeDirection].forEach((code) =>
       this.game.setKeyState(code, false)
     );
-    this.toggleButtonState(this.activeDirection, false);
     this.activeDirection = null;
-  }
-
-  toggleButtonState(action, isActive) {
-    const button = this.container?.querySelector(`[data-action="${action}"]`);
-    if (!button) return;
-    button.classList.toggle('is-active', Boolean(isActive));
   }
 
   addListener(target, type, handler, options) {
@@ -200,9 +190,13 @@ export class MobileControls {
     if (shouldShow) {
       this.container.classList.add('mobile-controls--visible');
       this.container.setAttribute('aria-hidden', 'false');
+      this.enabled = true;
     } else {
       this.container.classList.remove('mobile-controls--visible');
       this.container.setAttribute('aria-hidden', 'true');
+      this.enabled = false;
+      this.movementPointerId = null;
+      this.clearDirection();
     }
   }
 
@@ -212,8 +206,8 @@ export class MobileControls {
     });
     this.handlers = [];
     this.clearDirection();
-    this.dpadPointerId = null;
-    this.dpadBounds = null;
+    this.movementPointerId = null;
+    this.enabled = false;
 
     window.removeEventListener('resize', this.boundUpdateVisibility);
     window.removeEventListener('orientationchange', this.boundUpdateVisibility);

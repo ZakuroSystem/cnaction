@@ -17,11 +17,25 @@ from ..settings import AppSettings
 
 def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> None:
     default_room = settings.default_room
+    auto_match_max_players = settings.auto_match_max_players
 
     @socketio.on("join")
     def on_join(data: dict[str, Any]):
-        room = data.get("room", default_room)
-        if room not in game.rooms:
+        raw_room = data.get("room")
+        auto_match = bool(data.get("autoMatch"))
+        preferred = data.get("preferredRoom") or raw_room
+        if not isinstance(raw_room, str) or not raw_room.strip():
+            raw_room = default_room
+        room = raw_room.strip() or default_room
+        if auto_match:
+            preferred_name = preferred if isinstance(preferred, str) else default_room
+            if isinstance(preferred_name, str):
+                preferred_name = preferred_name.strip() or default_room
+            room = game.resolve_auto_match_room(
+                preferred=preferred_name,
+                max_players=auto_match_max_players,
+            )
+        elif room not in game.rooms:
             game.initialize_room(room)
         join_room(room)
         rs = game.rooms[room]
@@ -38,6 +52,7 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             "clientManaged": rs.clientManaged,
             "x": player.x,
             "y": player.y,
+            "room": room,
         }
 
     @socketio.on("disconnect")

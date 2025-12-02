@@ -18,7 +18,28 @@
 <body>
   <div id="start-overlay">
     <h1>ゲーム開始</h1>
-    <label class="form-field">
+    <div class="match-mode" role="group" aria-labelledby="matchModeLabel">
+      <span id="matchModeLabel" class="match-mode__label">入室方法</span>
+      <div class="match-mode__options">
+        <label class="match-mode__option">
+          <input
+            type="radio"
+            name="matchMode"
+            value="auto"
+            checked
+          />
+          <span>オートマッチ</span>
+        </label>
+        <label class="match-mode__option">
+          <input type="radio" name="matchMode" value="manual" />
+          <span>ルーム選択</span>
+        </label>
+      </div>
+      <p id="matchModeHint" class="match-mode__hint">
+        空いているルームに自動で参加します。
+      </p>
+    </div>
+    <label class="form-field" id="roomNameField" hidden>
       <span class="form-field__label">ルーム名</span>
       <input
         type="text"
@@ -61,40 +82,10 @@
       aria-live="polite"
     ></div>
     <div id="mobile-controls" class="mobile-controls" aria-hidden="true">
-      <div class="mobile-controls__surface mobile-controls__surface--move">
-        <div
-          class="mobile-controls__cluster mobile-controls__cluster--dpad"
-          role="group"
-          aria-label="移動操作"
-        >
-          <button
-            type="button"
-            class="mobile-controls__button mobile-controls__button--up"
-            data-action="up"
-            aria-label="上に移動"
-          >▲</button>
-          <span class="mobile-controls__spacer" aria-hidden="true"></span>
-          <button
-            type="button"
-            class="mobile-controls__button mobile-controls__button--right"
-            data-action="right"
-            aria-label="右に移動"
-          >▶</button>
-          <button
-            type="button"
-            class="mobile-controls__button mobile-controls__button--left"
-            data-action="left"
-            aria-label="左に移動"
-          >◀</button>
-          <span class="mobile-controls__spacer" aria-hidden="true"></span>
-          <button
-            type="button"
-            class="mobile-controls__button mobile-controls__button--down"
-            data-action="down"
-            aria-label="下に移動"
-          >▼</button>
-        </div>
-        <span class="mobile-controls__label">移動</span>
+      <div class="mobile-controls__hint" aria-hidden="true">
+        <p class="mobile-controls__hint-text">
+          画面右側を長押しで右移動、<br />画面下部を長押しで下移動
+        </p>
       </div>
       <div class="mobile-controls__surface mobile-controls__surface--action">
         <button

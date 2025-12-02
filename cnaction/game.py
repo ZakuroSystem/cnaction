@@ -1,6 +1,7 @@
 """Game state management utilities used by the Flask views and sockets."""
 from __future__ import annotations
 
+import itertools
 import random
 import time
 import uuid
@@ -46,6 +47,8 @@ _socketio: Optional[SocketIO] = None
 _dirty_lock = Lock()
 _flush_lock = Lock()
 _flush_pending = False
+_auto_match_lock = Lock()
+_auto_match_sequence = itertools.count(1)
 
 
 def init(socketio: SocketIO) -> None:
@@ -170,6 +173,49 @@ def get_player_positions(room: str, player_ids=None) -> dict:
                 'lastMoveSeq': getattr(player, 'lastMoveSeq', 0),
             }
     return result
+
+
+def resolve_auto_match_room(
+    preferred: str | None = None,
+    *,
+    max_players: int = 4,
+) -> str:
+    """Return a room name suitable for auto-matching players."""
+
+    candidate: str | None = None
+    preferred_name = (preferred or '').strip()
+
+    with _auto_match_lock:
+        if preferred_name:
+            if preferred_name not in rooms:
+                initialize_room(preferred_name)
+                return preferred_name
+            if max_players <= 0 or len(rooms[preferred_name].players) < max_players:
+                return preferred_name
+
+        if max_players > 0:
+            for name, state in rooms.items():
+                if state.resetScheduled:
+                    continue
+                if len(state.players) < max_players:
+                    candidate = name
+                    break
+
+        if not candidate and max_players <= 0 and rooms:
+            candidate = next(iter(rooms))
+
+        if not candidate:
+            while True:
+                generated = f"match{next(_auto_match_sequence)}"
+                if generated not in rooms:
+                    initialize_room(generated)
+                    candidate = generated
+                    break
+
+        if candidate not in rooms:
+            initialize_room(candidate)
+
+    return candidate
 
 # ─────────────────────────────────────────
 # ユーティリティ関数
