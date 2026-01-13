@@ -39,8 +39,13 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             game.initialize_room(room)
         join_room(room)
         rs = game.rooms[room]
-        pid = f"player{len(rs.players) + 1}"
-        rs.players[pid] = Player(base_image=pid, image=pid)
+        next_index = 1
+        while f"player{next_index}" in rs.players:
+            next_index += 1
+        pid = f"player{next_index}"
+        sprite_index = ((next_index - 1) % 5) + 1
+        sprite_key = f"player{sprite_index}"
+        rs.players[pid] = Player(base_image=sprite_key, image=sprite_key)
         game.sid_to_player[request.sid] = (room, pid)
         rs.hostId = ""
         rs.clientManaged = False
@@ -67,6 +72,9 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             if rs.hostId == pid:
                 rs.hostId = ""
                 rs.clientManaged = False
+            if not rs.players:
+                game.reset_room(room)
+                return
             game.mark_dirty(room)
 
     @socketio.on("update_config")
@@ -75,12 +83,19 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         cfg = data.get("config")
         if room not in game.rooms:
             game.initialize_room(room, cfg)
+            if room == default_room:
+                cfg = sanitize_config(cfg)
+                if isinstance(cfg.get("transferObjects"), str):
+                    cfg["transferObjects"] = parse_transfer_objects(cfg["transferObjects"])
+                game.set_default_room_config(cfg)
             return
 
         cfg = sanitize_config(cfg)
         if isinstance(cfg.get("transferObjects"), str):
             cfg["transferObjects"] = parse_transfer_objects(cfg["transferObjects"])
         game.assign_room_config(game.rooms[room], cfg)
+        if room == default_room:
+            game.set_default_room_config(cfg)
         game.mark_dirty(room)
 
     @socketio.on("move")

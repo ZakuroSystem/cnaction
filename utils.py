@@ -694,8 +694,11 @@ def update_orders(room: str, rooms: Dict[str, 'RoomState']):
 
     rs.orders = updated_orders
 
-def export_config_response(room: str, rooms: Dict[str, 'RoomState']):
-    cfg = rooms.get(room).config if room in rooms else get_default_config()
+def export_config_response(room: str, rooms: Dict[str, 'RoomState'], default_config: Optional[dict] = None):
+    if room in rooms:
+        cfg = rooms.get(room).config
+    else:
+        cfg = default_config if isinstance(default_config, dict) else get_default_config()
     js = json.dumps(cfg, ensure_ascii=False, indent=2)
     return send_file(BytesIO(js.encode('utf-8')),
                      mimetype='application/json',
