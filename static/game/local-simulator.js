@@ -509,6 +509,34 @@ function circleRectCollision(cx, cy, radius, rect) {
   return dx * dx + dy * dy <= radius * radius;
 }
 
+function resolveCollisionOverlap(x, y, entries) {
+  let adjustedX = x;
+  let adjustedY = y;
+  for (const entry of entries) {
+    const obstacle = entry.obstacle;
+    const metrics = obstacleMetrics(obstacle);
+    if (!circleRectCollision(adjustedX, adjustedY, PLAYER_RADIUS, metrics)) {
+      continue;
+    }
+    const dxLeft = metrics.left - PLAYER_RADIUS - adjustedX;
+    const dxRight = metrics.right + PLAYER_RADIUS - adjustedX;
+    const dyTop = metrics.top - PLAYER_RADIUS - adjustedY;
+    const dyBottom = metrics.bottom + PLAYER_RADIUS - adjustedY;
+    const candidates = [
+      { distance: Math.abs(dxLeft), dx: dxLeft, dy: 0 },
+      { distance: Math.abs(dxRight), dx: dxRight, dy: 0 },
+      { distance: Math.abs(dyTop), dx: 0, dy: dyTop },
+      { distance: Math.abs(dyBottom), dx: 0, dy: dyBottom },
+    ];
+    candidates.sort((a, b) => a.distance - b.distance);
+    adjustedX += candidates[0].dx;
+    adjustedY += candidates[0].dy;
+  }
+  adjustedX = clamp(adjustedX, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS);
+  adjustedY = clamp(adjustedY, PLAYER_RADIUS, PLAYFIELD_HEIGHT - PLAYER_RADIUS);
+  return { x: adjustedX, y: adjustedY };
+}
+
 function tryMoveObstacle(entries, entry, dx, dy) {
   const obstacle = entry.obstacle;
   if (Math.abs(dx) < COLLISION_EPSILON && Math.abs(dy) < COLLISION_EPSILON) {
@@ -652,10 +680,11 @@ export function resolvePlayerMovement(state, player, targetX, targetY) {
   let obstaclesMoved = false;
 
   if (entries.length) {
-    const resultX = resolveAxis(entries, startX, startY, clampedX, 'x');
+    const adjusted = resolveCollisionOverlap(startX, startY, entries);
+    const resultX = resolveAxis(entries, adjusted.x, adjusted.y, clampedX, 'x');
     resolvedX = resultX.position;
     obstaclesMoved = obstaclesMoved || resultX.obstaclesMoved;
-    const resultY = resolveAxis(entries, resolvedX, startY, clampedY, 'y');
+    const resultY = resolveAxis(entries, resolvedX, adjusted.y, clampedY, 'y');
     resolvedY = resultY.position;
     obstaclesMoved = obstaclesMoved || resultY.obstaclesMoved;
   }

@@ -20,17 +20,19 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
     auto_match_max_players = settings.auto_match_max_players
 
     @socketio.on("join")
-    def on_join(data: dict[str, Any]):
-        raw_room = data.get("room")
-        auto_match = bool(data.get("autoMatch"))
-        preferred = data.get("preferredRoom") or raw_room
+    def on_join(data: dict[str, Any] | None):
+        payload = data if isinstance(data, dict) else {}
+        raw_room = payload.get("room")
+        auto_match = bool(payload.get("autoMatch"))
+        preferred = payload.get("preferredRoom") or raw_room
+        default_name = default_room if isinstance(default_room, str) else "room1"
         if not isinstance(raw_room, str) or not raw_room.strip():
-            raw_room = default_room
-        room = raw_room.strip() or default_room
+            raw_room = default_name
+        room = raw_room.strip() or default_name
         if auto_match:
-            preferred_name = preferred if isinstance(preferred, str) else default_room
+            preferred_name = preferred if isinstance(preferred, str) else default_name
             if isinstance(preferred_name, str):
-                preferred_name = preferred_name.strip() or default_room
+                preferred_name = preferred_name.strip() or default_name
             room = game.resolve_auto_match_room(
                 preferred=preferred_name,
                 max_players=auto_match_max_players,
@@ -61,7 +63,7 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         }
 
     @socketio.on("disconnect")
-    def on_disconnect():
+    def on_disconnect(reason: Any | None = None):
         info = game.sid_to_player.pop(request.sid, None)
         if not info:
             return

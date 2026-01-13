@@ -780,6 +780,32 @@ def _circle_rect_collision(cx: float, cy: float, radius: float, rect: dict) -> b
     return dx * dx + dy * dy <= radius * radius
 
 
+def _resolve_collision_overlap(x: float, y: float, entries: list) -> tuple[float, float]:
+    adjusted_x = x
+    adjusted_y = y
+    for entry in entries:
+        obstacle = entry['obstacle']
+        metrics = _obstacle_metrics(obstacle)
+        if not _circle_rect_collision(adjusted_x, adjusted_y, PLAYER_RADIUS, metrics):
+            continue
+        dx_left = (metrics['left'] - PLAYER_RADIUS) - adjusted_x
+        dx_right = (metrics['right'] + PLAYER_RADIUS) - adjusted_x
+        dy_top = (metrics['top'] - PLAYER_RADIUS) - adjusted_y
+        dy_bottom = (metrics['bottom'] + PLAYER_RADIUS) - adjusted_y
+        candidates = [
+            (abs(dx_left), dx_left, 0.0),
+            (abs(dx_right), dx_right, 0.0),
+            (abs(dy_top), 0.0, dy_top),
+            (abs(dy_bottom), 0.0, dy_bottom),
+        ]
+        _, push_x, push_y = min(candidates, key=lambda c: c[0])
+        adjusted_x += push_x
+        adjusted_y += push_y
+    adjusted_x = _clamp(adjusted_x, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS)
+    adjusted_y = _clamp(adjusted_y, PLAYER_RADIUS, PLAYFIELD_HEIGHT - PLAYER_RADIUS)
+    return adjusted_x, adjusted_y
+
+
 def _try_move_obstacle(entries: list, entry: dict, dx: float, dy: float) -> tuple:
     obstacle = entry['obstacle']
     if abs(dx) < COLLISION_EPSILON and abs(dy) < COLLISION_EPSILON:
@@ -903,6 +929,7 @@ def apply_player_move(state: RoomState, player: Player, target_x: float, target_
     obstacles_moved = False
 
     if entries:
+        start_x, start_y = _resolve_collision_overlap(start_x, start_y, entries)
         resolved_x, moved_x = _resolve_axis(entries, start_x, start_y, clamped_x, 'x')
         obstacles_moved = obstacles_moved or moved_x
         resolved_y, moved_y = _resolve_axis(entries, resolved_x, start_y, clamped_y, 'y')
@@ -1248,7 +1275,7 @@ def reset_room(room: str) -> bool:
     cfg = rs.config
     with _room_lock(rs):
         for zone in cfg.get('actionZones', []):
-            if not clear_zone_cooking(rs, zone):
+            if not _clear_zone_cooking(rs, zone):
                 zone['occupied'] = False
         registry = _ensure_cooking_registry(rs)
         registry.clear()
