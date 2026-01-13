@@ -33,6 +33,7 @@
               注文: ${r.orders.map(o => o.dish + " (" + o.remaining + "秒)").join(" / ")}<br>
               プレイヤー数: ${Object.keys(r.players).length}<br>
               <button onclick="resetRoom('${room}')">リセット</button>
+              <button onclick="deleteRoom('${room}')">削除</button>
               <button onclick="exportConfig('${room}')">設定書き出し</button>
             </div>`;
           }
@@ -42,6 +43,17 @@
       const formData = new FormData();
       formData.append("room", room);
       fetch('/reset_room', { method: 'POST', body: formData })
+        .then(res => res.text())
+        .then(text => {
+          alert(text);
+          loadRooms();
+        });
+    }
+    function deleteRoom(room) {
+      if (!confirm(`ルーム ${room} を削除しますか？`)) return;
+      const formData = new FormData();
+      formData.append("room", room);
+      fetch('/delete_room', { method: 'POST', body: formData })
         .then(res => res.text())
         .then(text => {
           alert(text);

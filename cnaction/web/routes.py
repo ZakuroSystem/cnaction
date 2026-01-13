@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from cnaction import game
-from utils import export_config_response, get_default_config
+from utils import export_config_response
 
 from ..services.stage_store import StageStore
 from ..services.uploads import UploadService
@@ -55,7 +55,7 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
 
     @blueprint.route("/api/default_config")
     def api_default_config():
-        return jsonify(get_default_config())
+        return jsonify(game.get_default_room_config())
 
     @blueprint.route("/upload_image", methods=["POST"])
     def upload_image():
@@ -104,7 +104,7 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
     @blueprint.route("/export_config")
     def export_config():
         room = request.args.get("room", "")
-        return export_config_response(room, game.rooms)
+        return export_config_response(room, game.rooms, game.get_default_room_config())
 
     @blueprint.route("/reset_room", methods=["POST"])
     def reset_room():
@@ -112,6 +112,13 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
         if not game.reset_room(room):
             return "Room not found", 404
         return "Reset", 200
+
+    @blueprint.route("/delete_room", methods=["POST"])
+    def delete_room():
+        room = request.form.get("room", "")
+        if not game.delete_room(room):
+            return "Room not found", 404
+        return "Deleted", 200
 
     return blueprint
 

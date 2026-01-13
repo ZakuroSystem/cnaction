@@ -27,7 +27,7 @@ def start_game_timer(socketio: SocketIO) -> None:
                 if rs.gameOver and not rs.resetScheduled:
                     rs.resetScheduled = True
                     socketio.start_background_task(
-                        lambda r=room: (socketio.sleep(10), game.rooms.pop(r, None))
+                        lambda r=room: (socketio.sleep(10), game.delete_room(r))
                     )
 
     socketio.start_background_task(task)

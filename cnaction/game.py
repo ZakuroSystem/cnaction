@@ -1,6 +1,7 @@
 """Game state management utilities used by the Flask views and sockets."""
 from __future__ import annotations
 
+import copy
 import itertools
 import random
 import time
@@ -49,12 +50,32 @@ _flush_lock = Lock()
 _flush_pending = False
 _auto_match_lock = Lock()
 _auto_match_sequence = itertools.count(1)
+_default_room_config: Optional[dict] = None
+_default_room_lock = Lock()
 
 
 def init(socketio: SocketIO) -> None:
     """Configure the game state module with the active SocketIO instance."""
     global _socketio
     _socketio = socketio
+
+
+def set_default_room_config(cfg: dict) -> None:
+    if not isinstance(cfg, dict):
+        return
+    sanitized = sanitize_config(cfg)
+    if isinstance(sanitized.get("transferObjects"), str):
+        sanitized["transferObjects"] = parse_transfer_objects(sanitized["transferObjects"])
+    with _default_room_lock:
+        global _default_room_config
+        _default_room_config = copy.deepcopy(sanitized)
+
+
+def get_default_room_config() -> dict:
+    with _default_room_lock:
+        if _default_room_config is not None:
+            return copy.deepcopy(_default_room_config)
+    return get_default_config()
 
 
 def _require_socketio() -> SocketIO:
@@ -759,6 +780,32 @@ def _circle_rect_collision(cx: float, cy: float, radius: float, rect: dict) -> b
     return dx * dx + dy * dy <= radius * radius
 
 
+def _resolve_collision_overlap(x: float, y: float, entries: list) -> tuple[float, float]:
+    adjusted_x = x
+    adjusted_y = y
+    for entry in entries:
+        obstacle = entry['obstacle']
+        metrics = _obstacle_metrics(obstacle)
+        if not _circle_rect_collision(adjusted_x, adjusted_y, PLAYER_RADIUS, metrics):
+            continue
+        dx_left = (metrics['left'] - PLAYER_RADIUS) - adjusted_x
+        dx_right = (metrics['right'] + PLAYER_RADIUS) - adjusted_x
+        dy_top = (metrics['top'] - PLAYER_RADIUS) - adjusted_y
+        dy_bottom = (metrics['bottom'] + PLAYER_RADIUS) - adjusted_y
+        candidates = [
+            (abs(dx_left), dx_left, 0.0),
+            (abs(dx_right), dx_right, 0.0),
+            (abs(dy_top), 0.0, dy_top),
+            (abs(dy_bottom), 0.0, dy_bottom),
+        ]
+        _, push_x, push_y = min(candidates, key=lambda c: c[0])
+        adjusted_x += push_x
+        adjusted_y += push_y
+    adjusted_x = _clamp(adjusted_x, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS)
+    adjusted_y = _clamp(adjusted_y, PLAYER_RADIUS, PLAYFIELD_HEIGHT - PLAYER_RADIUS)
+    return adjusted_x, adjusted_y
+
+
 def _try_move_obstacle(entries: list, entry: dict, dx: float, dy: float) -> tuple:
     obstacle = entry['obstacle']
     if abs(dx) < COLLISION_EPSILON and abs(dy) < COLLISION_EPSILON:
@@ -850,6 +897,11 @@ def _resolve_axis(entries: list, current_x: float, current_y: float, target_valu
                 limit = metrics[limit_key] + PLAYER_RADIUS
             candidate = max(candidate, limit)
 
+    if delta > 0:
+        candidate = max(candidate, start)
+    elif delta < 0:
+        candidate = min(candidate, start)
+
     if axis == 'x':
         candidate = _clamp(candidate, PLAYER_RADIUS, PLAYFIELD_WIDTH - PLAYER_RADIUS)
     else:
@@ -877,6 +929,7 @@ def apply_player_move(state: RoomState, player: Player, target_x: float, target_
     obstacles_moved = False
 
     if entries:
+        start_x, start_y = _resolve_collision_overlap(start_x, start_y, entries)
         resolved_x, moved_x = _resolve_axis(entries, start_x, start_y, clamped_x, 'x')
         obstacles_moved = obstacles_moved or moved_x
         resolved_y, moved_y = _resolve_axis(entries, resolved_x, start_y, clamped_y, 'y')
@@ -895,6 +948,23 @@ def apply_player_move(state: RoomState, player: Player, target_x: float, target_
             player.currentItem.y = resolved_y
 
     return moved, obstacles_moved
+
+
+def delete_room(room: str, *, notify: bool = True) -> bool:
+    rs = rooms.pop(room, None)
+    with _dirty_lock:
+        dirty_flags.pop(room, None)
+    if rs is None:
+        return False
+    if notify:
+        try:
+            _require_socketio().emit("force_disconnect", {}, room=room)
+        except RuntimeError:
+            pass
+    for sid, info in list(sid_to_player.items()):
+        if info[0] == room:
+            sid_to_player.pop(sid, None)
+    return True
 
 
 def resolve_cooking_action(rs: RoomState, item: Optional[Item]) -> Optional[dict]:
@@ -1205,7 +1275,7 @@ def reset_room(room: str) -> bool:
     cfg = rs.config
     with _room_lock(rs):
         for zone in cfg.get('actionZones', []):
-            if not clear_zone_cooking(rs, zone):
+            if not _clear_zone_cooking(rs, zone):
                 zone['occupied'] = False
         registry = _ensure_cooking_registry(rs)
         registry.clear()
@@ -1222,7 +1292,8 @@ def reset_room(room: str) -> bool:
 
 
 def initialize_room(room: str, config: dict = None):
-    cfg = sanitize_config(config or get_default_config())
+    source_cfg = config if config is not None else get_default_room_config()
+    cfg = sanitize_config(source_cfg)
     if isinstance(cfg.get('transferObjects'), str):
         cfg['transferObjects'] = parse_transfer_objects(cfg['transferObjects'])
 
@@ -1435,4 +1506,3 @@ def run_cooking_task(room: str, zone: dict, task: dict):
             mark_dirty(room)
         if should_exit:
             return
-

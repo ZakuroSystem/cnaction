@@ -20,17 +20,19 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
     auto_match_max_players = settings.auto_match_max_players
 
     @socketio.on("join")
-    def on_join(data: dict[str, Any]):
-        raw_room = data.get("room")
-        auto_match = bool(data.get("autoMatch"))
-        preferred = data.get("preferredRoom") or raw_room
+    def on_join(data: dict[str, Any] | None):
+        payload = data if isinstance(data, dict) else {}
+        raw_room = payload.get("room")
+        auto_match = bool(payload.get("autoMatch"))
+        preferred = payload.get("preferredRoom") or raw_room
+        default_name = default_room if isinstance(default_room, str) else "room1"
         if not isinstance(raw_room, str) or not raw_room.strip():
-            raw_room = default_room
-        room = raw_room.strip() or default_room
+            raw_room = default_name
+        room = raw_room.strip() or default_name
         if auto_match:
-            preferred_name = preferred if isinstance(preferred, str) else default_room
+            preferred_name = preferred if isinstance(preferred, str) else default_name
             if isinstance(preferred_name, str):
-                preferred_name = preferred_name.strip() or default_room
+                preferred_name = preferred_name.strip() or default_name
             room = game.resolve_auto_match_room(
                 preferred=preferred_name,
                 max_players=auto_match_max_players,
@@ -39,8 +41,13 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             game.initialize_room(room)
         join_room(room)
         rs = game.rooms[room]
-        pid = f"player{len(rs.players) + 1}"
-        rs.players[pid] = Player(base_image=pid, image=pid)
+        next_index = 1
+        while f"player{next_index}" in rs.players:
+            next_index += 1
+        pid = f"player{next_index}"
+        sprite_index = ((next_index - 1) % 5) + 1
+        sprite_key = f"player{sprite_index}"
+        rs.players[pid] = Player(base_image=sprite_key, image=sprite_key)
         game.sid_to_player[request.sid] = (room, pid)
         rs.hostId = ""
         rs.clientManaged = False
@@ -56,7 +63,7 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         }
 
     @socketio.on("disconnect")
-    def on_disconnect():
+    def on_disconnect(reason: Any | None = None):
         info = game.sid_to_player.pop(request.sid, None)
         if not info:
             return
@@ -67,6 +74,9 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             if rs.hostId == pid:
                 rs.hostId = ""
                 rs.clientManaged = False
+            if not rs.players:
+                game.reset_room(room)
+                return
             game.mark_dirty(room)
 
     @socketio.on("update_config")
@@ -75,12 +85,19 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         cfg = data.get("config")
         if room not in game.rooms:
             game.initialize_room(room, cfg)
+            if room == default_room:
+                cfg = sanitize_config(cfg)
+                if isinstance(cfg.get("transferObjects"), str):
+                    cfg["transferObjects"] = parse_transfer_objects(cfg["transferObjects"])
+                game.set_default_room_config(cfg)
             return
 
         cfg = sanitize_config(cfg)
         if isinstance(cfg.get("transferObjects"), str):
             cfg["transferObjects"] = parse_transfer_objects(cfg["transferObjects"])
         game.assign_room_config(game.rooms[room], cfg)
+        if room == default_room:
+            game.set_default_room_config(cfg)
         game.mark_dirty(room)
 
     @socketio.on("move")
