@@ -35,6 +35,7 @@ export class GameClient {
       orderListEl: document.getElementById('order-list'),
       gameOverMessageEl: document.getElementById('game-over-message'),
     });
+    this.matchStatusEl = document.getElementById('match-status');
 
     this.serverState = null;
     this.localPosition = null;
@@ -99,6 +100,7 @@ export class GameClient {
     }
     this.positionRequestTimer = 0;
     this.initialSpawn = null;
+    this.setMatchStatus(window.autoMatch, 'マッチング中...');
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
     document.addEventListener('visibilitychange', this.boundVisibilityChange);
@@ -124,6 +126,7 @@ export class GameClient {
       payload.room = String(window.roomName || 'room1');
     }
     this.socket.emit('join', payload, (data) => {
+      this.setMatchStatus(false);
       if (data && typeof data.room === 'string' && data.room) {
         window.roomName = data.room;
       }
@@ -184,6 +187,7 @@ export class GameClient {
     }
     this.positionRequestTimer = 0;
     this.initialSpawn = null;
+    this.setMatchStatus(false);
     if (this.mobileControls) {
       this.mobileControls.destroy();
       this.mobileControls = null;
@@ -191,6 +195,18 @@ export class GameClient {
     const dispose = this.onDispose;
     this.onDispose = () => {};
     dispose();
+  }
+
+  setMatchStatus(isVisible, message = '') {
+    if (!this.matchStatusEl) return;
+    if (message) {
+      this.matchStatusEl.textContent = message;
+    }
+    if (isVisible) {
+      this.matchStatusEl.removeAttribute('hidden');
+    } else {
+      this.matchStatusEl.setAttribute('hidden', 'true');
+    }
   }
 
   loop(timestamp) {

@@ -38,15 +38,15 @@ function ensureDefaults() {
 }
 
 function applyMatchSelections(roomInput) {
-  const value = roomInput?.value?.trim();
   if (matchMode === 'manual') {
+    const value = roomInput?.value?.trim();
     window.autoMatch = false;
     window.roomName = value || 'room1';
     window.autoMatchRoomHint = '';
     return;
   }
   window.autoMatch = true;
-  window.autoMatchRoomHint = value || '';
+  window.autoMatchRoomHint = '';
   window.roomName = '';
 }
 
