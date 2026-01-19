@@ -35,6 +35,29 @@ configuration and local development.
 
 The existing gameplay logic lives in `cnaction/game.py`, `models.py`, and `utils.py`.
 
+## How to Play
+
+1. Open the game in your browser after starting the server.
+2. Choose **オートマッチ** to join an available room, or **ルーム選択** to enter a room name.
+3. Press the start button to begin the session.
+
+### Controls
+
+- Move: Arrow keys / WASD
+- Action: Space key
+- Mobile: press and hold the right/bottom edges to move, use the action button to interact
+
+### Gameplay Loop
+
+- Follow the order list to assemble dishes.
+- Pick up ingredients, cook them at the appropriate stations, and submit completed items.
+- Earn as many points as possible before the timer runs out.
+
+### Leaving or Resetting
+
+- Use the in-game **ゲームを退出** button to leave a room and return to the start screen.
+- Use the **ルームを削除** button (manual mode) to remove a room you created.
+
 ## Getting Started
 
 ### Installation
