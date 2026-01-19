@@ -72,6 +72,27 @@ function ensureDefaults() {
   }
 }
 
+function requestLeave() {
+  if (!window.playerId) return;
+  socket.emit('leave', { room: window.roomName || '', playerId: window.playerId });
+  window.playerId = '';
+}
+
+function showStartOverlay() {
+  const container = document.getElementById('game-container');
+  const ui = document.getElementById('ui');
+  const overlay = document.getElementById('start-overlay');
+  if (overlay) {
+    overlay.style.display = 'block';
+  }
+  if (container) {
+    container.style.display = 'none';
+  }
+  if (ui) {
+    ui.style.display = 'none';
+  }
+}
+
 function applyMatchSelections(roomInput) {
   if (matchMode === 'manual') {
     const value = roomInput?.value?.trim();
@@ -122,6 +143,7 @@ window.startGame = async function startGame() {
   ui.style.display = 'block';
 
   if (window.gameClient) {
+    requestLeave();
     window.gameClient.destroy();
   }
 
@@ -226,9 +248,22 @@ function bindDeleteRoomButtons() {
   }
 }
 
+function bindLeaveButton() {
+  const leaveButton = document.getElementById('leaveGameButton');
+  if (!leaveButton) return;
+  leaveButton.addEventListener('click', () => {
+    requestLeave();
+    if (window.gameClient) {
+      window.gameClient.destroy();
+    }
+    showStartOverlay();
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   bindMatchModeToggle();
   bindStartButton();
   bindRoomInput();
   bindDeleteRoomButtons();
+  bindLeaveButton();
 });

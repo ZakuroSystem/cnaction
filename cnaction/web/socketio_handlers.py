@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from flask import request
-from flask_socketio import SocketIO, join_room
+from flask_socketio import SocketIO, join_room, leave_room
 
 from cnaction import game
 from cnaction.config import sanitize_config
@@ -68,6 +68,24 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         if not info:
             return
         room, pid = info
+        if room in game.rooms and pid in game.rooms[room].players:
+            game.rooms[room].players.pop(pid)
+            rs = game.rooms[room]
+            if rs.hostId == pid:
+                rs.hostId = ""
+                rs.clientManaged = False
+            if not rs.players:
+                game.reset_room(room)
+                return
+            game.mark_dirty(room)
+
+    @socketio.on("leave")
+    def on_leave(data: dict[str, Any] | None = None):
+        info = game.sid_to_player.pop(request.sid, None)
+        if not info:
+            return
+        room, pid = info
+        leave_room(room)
         if room in game.rooms and pid in game.rooms[room].players:
             game.rooms[room].players.pop(pid)
             rs = game.rooms[room]
