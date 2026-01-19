@@ -3,6 +3,7 @@ let gameClient = null;
 let matchMode = 'auto';
 
 let GameClientCtorPromise = null;
+let deleteInProgress = false;
 
 function getGameClientModuleUrl() {
   const moduleUrl = new URL('./game/game-client.js', import.meta.url);
@@ -23,6 +24,40 @@ function loadGameClientCtor() {
       });
   }
   return GameClientCtorPromise;
+}
+
+function setDeleteMessage(message, isError = false) {
+  const messageEl = document.getElementById('deleteRoomMessage');
+  if (!messageEl) return;
+  messageEl.textContent = message;
+  messageEl.classList.toggle('room-actions__message--error', isError);
+}
+
+async function deleteRoomByName(roomName) {
+  if (!roomName) {
+    setDeleteMessage('削除するルーム名を入力してください。', true);
+    return false;
+  }
+  if (deleteInProgress) return false;
+  if (!confirm(`ルーム「${roomName}」を削除しますか？`)) return false;
+  deleteInProgress = true;
+  setDeleteMessage('ルームを削除しています...');
+  const formData = new FormData();
+  formData.append('room', roomName);
+  try {
+    const res = await fetch('/delete_room', { method: 'POST', body: formData });
+    if (!res.ok) {
+      throw new Error('delete_failed');
+    }
+    setDeleteMessage('ルームを削除しました。');
+    return true;
+  } catch (error) {
+    console.error('ルーム削除に失敗しました。', error);
+    setDeleteMessage('ルームの削除に失敗しました。', true);
+    return false;
+  } finally {
+    deleteInProgress = false;
+  }
 }
 
 function ensureDefaults() {
@@ -127,14 +162,20 @@ function setMatchMode(mode) {
   matchMode = mode === 'manual' ? 'manual' : 'auto';
   const roomField = document.getElementById('roomNameField');
   const hint = document.getElementById('matchModeHint');
+  const roomActions = document.getElementById('roomActions');
+  const deleteInGame = document.getElementById('deleteRoomInGame');
   if (matchMode === 'manual') {
     roomField?.removeAttribute('hidden');
+    roomActions?.removeAttribute('hidden');
+    deleteInGame?.removeAttribute('hidden');
     if (hint) {
       hint.textContent = '参加するルーム名を入力してください。';
     }
     return;
   }
   roomField?.setAttribute('hidden', 'true');
+  roomActions?.setAttribute('hidden', 'true');
+  deleteInGame?.setAttribute('hidden', 'true');
   if (hint) {
     hint.textContent = '空いているルームに自動で参加します。';
   }
@@ -161,8 +202,33 @@ function bindMatchModeToggle() {
   setMatchMode(initial);
 }
 
+function bindDeleteRoomButtons() {
+  const deleteButton = document.getElementById('deleteRoomButton');
+  const deleteInGame = document.getElementById('deleteRoomInGame');
+  const roomInput = document.getElementById('roomName');
+  if (deleteButton) {
+    deleteButton.addEventListener('click', async () => {
+      const roomName = roomInput?.value?.trim() || window.roomName || '';
+      const deleted = await deleteRoomByName(roomName);
+      if (deleted) {
+        window.roomName = '';
+      }
+    });
+  }
+  if (deleteInGame) {
+    deleteInGame.addEventListener('click', async () => {
+      const roomName = window.roomName || roomInput?.value?.trim() || '';
+      const deleted = await deleteRoomByName(roomName);
+      if (deleted) {
+        window.roomName = '';
+      }
+    });
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   bindMatchModeToggle();
   bindStartButton();
   bindRoomInput();
+  bindDeleteRoomButtons();
 });

@@ -49,6 +49,31 @@
         autocomplete="off"
       />
     </label>
+    <div id="roomActions" class="room-actions" hidden>
+      <button type="button" id="deleteRoomButton" class="room-actions__button">
+        ルームを削除
+      </button>
+      <p id="deleteRoomMessage" class="room-actions__message" role="status" aria-live="polite"></p>
+    </div>
+    <section class="game-guide" aria-labelledby="gameGuideTitle">
+      <h2 id="gameGuideTitle">ゲームの説明</h2>
+      <div class="game-guide__section">
+        <h3>操作方法</h3>
+        <ul>
+          <li>移動: 矢印キー / WASD</li>
+          <li>アクション: スペースキー</li>
+          <li>スマホ: 右側・下側の長押しで移動、アクションボタンで決定</li>
+        </ul>
+      </div>
+      <div class="game-guide__section">
+        <h3>遊び方</h3>
+        <ul>
+          <li>オーダーに表示された料理を順番に作ります。</li>
+          <li>素材を拾って調理し、完成した料理を提出してスコアを稼ぎます。</li>
+          <li>制限時間内にできるだけ多くのオーダーをこなしましょう。</li>
+        </ul>
+      </div>
+    </section>
     <img
       id="startButton"
       src="/static/assets/start_button.png"
@@ -78,6 +103,9 @@
           <div id="timer" class="status-panel__item">タイマー: 60</div>
           <div id="score" class="status-panel__item">スコア: 0</div>
           <div id="inventory" class="status-panel__item">持ち物: なし</div>
+          <button type="button" id="deleteRoomInGame" class="room-actions__button" hidden>
+            ルームを削除
+          </button>
         </div>
       </aside>
       <div class="play-layout__stage">

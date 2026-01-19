@@ -325,6 +325,76 @@ body {
   box-sizing: border-box;
 }
 
+.room-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.room-actions__button {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  background: #e57373;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.room-actions__button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.room-actions__message {
+  margin: 0;
+  font-size: 13px;
+  color: #6d4c41;
+}
+
+.room-actions__message--error {
+  color: #c62828;
+}
+
+.game-guide {
+  margin: 0 0 16px;
+  padding: 14px;
+  background: #fff8e1;
+  border: 1px solid #ffcc80;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.game-guide h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: #bf360c;
+}
+
+.game-guide__section + .game-guide__section {
+  margin-top: 12px;
+}
+
+.game-guide h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: #5d4037;
+}
+
+.game-guide ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+  color: #6d4c41;
+}
+
+.game-guide li + li {
+  margin-top: 4px;
+}
+
 .start-button {
   width: 100%;
   max-width: 260px;
