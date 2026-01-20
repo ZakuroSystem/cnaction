@@ -506,7 +506,8 @@ function circleRectCollision(cx, cy, radius, rect) {
   const closestY = clamp(cy, rect.top, rect.bottom);
   const dx = cx - closestX;
   const dy = cy - closestY;
-  return dx * dx + dy * dy <= radius * radius;
+  const adjustedRadius = Math.max(0, radius - COLLISION_EPSILON);
+  return dx * dx + dy * dy < adjustedRadius * adjustedRadius;
 }
 
 function resolveCollisionOverlap(x, y, entries) {
