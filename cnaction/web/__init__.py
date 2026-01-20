@@ -24,7 +24,14 @@ else:
 def create_app(settings: AppSettings | None = None) -> Tuple[Flask, SocketIO]:
     """Create and configure the Flask + Socket.IO application."""
 
-    settings = settings or AppSettings.from_env(project_root=RESOURCE_ROOT)
+    if isinstance(settings, type):
+        if issubclass(settings, AppSettings):
+            settings = settings.from_env(project_root=RESOURCE_ROOT)
+        else:
+            settings = None
+
+    if not isinstance(settings, AppSettings):
+        settings = AppSettings.from_env(project_root=RESOURCE_ROOT)
 
     app = Flask(
         __name__,
