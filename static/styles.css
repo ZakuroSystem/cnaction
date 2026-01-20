@@ -40,6 +40,17 @@ body {
   gap: 16px;
 }
 
+.match-status {
+  align-self: center;
+  background: #fff8e1;
+  border: 2px solid #ffb74d;
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-weight: 700;
+  color: #e65100;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
 .play-layout {
   display: grid;
   grid-template-columns: clamp(220px, 26vw, 320px) 1fr;

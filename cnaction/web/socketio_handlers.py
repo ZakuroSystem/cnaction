@@ -24,15 +24,15 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         payload = data if isinstance(data, dict) else {}
         raw_room = payload.get("room")
         auto_match = bool(payload.get("autoMatch"))
-        preferred = payload.get("preferredRoom") or raw_room
+        preferred = payload.get("preferredRoom")
         default_name = default_room if isinstance(default_room, str) else "room1"
         if not isinstance(raw_room, str) or not raw_room.strip():
             raw_room = default_name
         room = raw_room.strip() or default_name
         if auto_match:
-            preferred_name = preferred if isinstance(preferred, str) else default_name
-            if isinstance(preferred_name, str):
-                preferred_name = preferred_name.strip() or default_name
+            preferred_name = None
+            if isinstance(preferred, str):
+                preferred_name = preferred.strip() or None
             room = game.resolve_auto_match_room(
                 preferred=preferred_name,
                 max_players=auto_match_max_players,
@@ -45,7 +45,7 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         while f"player{next_index}" in rs.players:
             next_index += 1
         pid = f"player{next_index}"
-        sprite_index = ((next_index - 1) % 5) + 1
+        sprite_index = ((next_index - 1) % 4) + 1
         sprite_key = f"player{sprite_index}"
         rs.players[pid] = Player(base_image=sprite_key, image=sprite_key)
         game.sid_to_player[request.sid] = (room, pid)
