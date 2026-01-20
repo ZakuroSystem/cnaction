@@ -142,7 +142,11 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         if seq_val is not None and seq_val <= last_seq:
             return
 
-        moved, obstacles_moved = game.apply_player_move(rs, player, nx, ny)
+        player.x = nx
+        player.y = ny
+        if player.currentItem:
+            player.currentItem.x = nx
+            player.currentItem.y = ny
         if seq_val is not None:
             player.lastMoveSeq = seq_val
         if rs.clientManaged:
@@ -155,8 +159,7 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             if seq_val is not None:
                 payload["seq"] = seq_val
             socketio.emit("client_move", payload, room=room)
-        if moved or obstacles_moved:
-            game.mark_dirty(room)
+        game.mark_dirty(room)
 
         ack = {
             "playerId": pid,
@@ -218,9 +221,13 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             except (TypeError, ValueError):
                 nx = ny = None
             if nx is not None and ny is not None:
-                moved, obstacles_moved = game.apply_player_move(rs, player, nx, ny)
-                x, y = player.x, player.y
-                position_updated = moved or obstacles_moved
+                player.x = nx
+                player.y = ny
+                if player.currentItem:
+                    player.currentItem.x = nx
+                    player.currentItem.y = ny
+                x, y = nx, ny
+                position_updated = True
 
         if player.currentItem is None:
             if game.try_pickup_world_item(rs, room, player, x, y):
