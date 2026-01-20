@@ -37,6 +37,7 @@ from .constants import (
     PLAYFIELD_WIDTH,
     STATE_UPDATE_INTERVAL,
 )
+from .services.room_store import RoomStore
 from .values import coerce_float, coerce_int, normalize_uuid_list
 
 
@@ -52,12 +53,35 @@ _auto_match_lock = Lock()
 _auto_match_sequence = itertools.count(1)
 _default_room_config: Optional[dict] = None
 _default_room_lock = Lock()
+_room_store: Optional[RoomStore] = None
 
 
 def init(socketio: SocketIO) -> None:
     """Configure the game state module with the active SocketIO instance."""
     global _socketio
     _socketio = socketio
+
+
+def set_room_store(room_store: RoomStore) -> None:
+    """Register the room persistence helper."""
+    global _room_store
+    _room_store = room_store
+
+
+def _persist_rooms() -> None:
+    if _room_store is None:
+        return
+    snapshot: Dict[str, dict] = {}
+    for name, state in rooms.items():
+        if not isinstance(name, str):
+            continue
+        with _room_lock(state):
+            cfg = state.config if isinstance(state.config, dict) else get_default_room_config()
+            snapshot[name] = copy.deepcopy(cfg)
+    try:
+        _room_store.save(snapshot)
+    except OSError:
+        return
 
 
 def set_default_room_config(cfg: dict) -> None:
@@ -118,6 +142,7 @@ def assign_room_config(rs: RoomState, cfg: dict, revision: Optional[int] = None)
         else:
             rs.configRevision += 1
         refresh_orders_metadata(rs)
+    _persist_rooms()
 
 
 def _serialize_item(item: Optional[Item]) -> Optional[dict]:
@@ -964,6 +989,7 @@ def delete_room(room: str, *, notify: bool = True) -> bool:
     for sid, info in list(sid_to_player.items()):
         if info[0] == room:
             sid_to_player.pop(sid, None)
+    _persist_rooms()
     return True
 
 
@@ -1323,6 +1349,7 @@ def initialize_room(room: str, config: dict = None):
 
     rooms[room] = rs
     mark_dirty(room)
+    _persist_rooms()
 
 # ─────────────────────────────────────────
 

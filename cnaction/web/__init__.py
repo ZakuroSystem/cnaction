@@ -8,6 +8,7 @@ from flask import Flask
 from flask_socketio import SocketIO
 
 from ..settings import AppSettings
+from ..services.room_store import RoomStore
 from ..services.stage_store import StageStore
 from ..services.uploads import UploadService
 from .background import start_game_timer
@@ -38,6 +39,7 @@ def create_app(settings: AppSettings | None = None) -> Tuple[Flask, SocketIO]:
     socketio = SocketIO(app, cors_allowed_origins="*")
 
     stage_store = StageStore(settings.stage_dir)
+    room_store = RoomStore(settings.stage_dir / "rooms.json")
     upload_service = UploadService(
         settings.upload_dir,
         settings.backup_dir,
@@ -46,6 +48,7 @@ def create_app(settings: AppSettings | None = None) -> Tuple[Flask, SocketIO]:
 
     app.extensions["cnaction_settings"] = settings
     app.extensions["stage_store"] = stage_store
+    app.extensions["room_store"] = room_store
     app.extensions["upload_service"] = upload_service
 
     app.register_blueprint(create_blueprint(stage_store, upload_service, settings))
@@ -53,6 +56,11 @@ def create_app(settings: AppSettings | None = None) -> Tuple[Flask, SocketIO]:
     from cnaction import game
 
     game.init(socketio)
+    game.set_room_store(room_store)
+    for snapshot in room_store.load().values():
+        game.initialize_room(snapshot.name, snapshot.config)
+        if snapshot.name == settings.default_room:
+            game.set_default_room_config(snapshot.config)
     register_socketio_handlers(socketio, settings)
     start_game_timer(socketio)
 
