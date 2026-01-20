@@ -681,12 +681,22 @@ export function resolvePlayerMovement(state, player, targetX, targetY) {
 
   if (entries.length) {
     const adjusted = resolveCollisionOverlap(startX, startY, entries);
-    const resultX = resolveAxis(entries, adjusted.x, adjusted.y, clampedX, 'x');
-    resolvedX = resultX.position;
-    obstaclesMoved = obstaclesMoved || resultX.obstaclesMoved;
-    const resultY = resolveAxis(entries, resolvedX, adjusted.y, clampedY, 'y');
-    resolvedY = resultY.position;
-    obstaclesMoved = obstaclesMoved || resultY.obstaclesMoved;
+    const primaryX = resolveAxis(entries, adjusted.x, adjusted.y, clampedX, 'x');
+    const primaryY = resolveAxis(entries, primaryX.position, adjusted.y, clampedY, 'y');
+    const altY = resolveAxis(entries, adjusted.x, adjusted.y, clampedY, 'y');
+    const altX = resolveAxis(entries, adjusted.x, altY.position, clampedX, 'x');
+    const primaryDistance =
+      (primaryX.position - startX) ** 2 + (primaryY.position - startY) ** 2;
+    const alternateDistance = (altX.position - startX) ** 2 + (altY.position - startY) ** 2;
+    if (alternateDistance > primaryDistance + COLLISION_EPSILON) {
+      resolvedX = altX.position;
+      resolvedY = altY.position;
+      obstaclesMoved = obstaclesMoved || altX.obstaclesMoved || altY.obstaclesMoved;
+    } else {
+      resolvedX = primaryX.position;
+      resolvedY = primaryY.position;
+      obstaclesMoved = obstaclesMoved || primaryX.obstaclesMoved || primaryY.obstaclesMoved;
+    }
   }
 
   const moved =
