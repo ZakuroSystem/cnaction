@@ -20,6 +20,10 @@ document.getElementById('createStage').onclick = () => {
     if (typeof loadDefaultConfig === 'function') {
         loadDefaultConfig();
     }
+    const applyRoom = document.getElementById('applyRoom');
+    if (applyRoom) {
+        applyRoom.value = '';
+    }
     showEditor();
 };
 
@@ -32,6 +36,13 @@ document.getElementById('stageTable').addEventListener('click', e => {
             currentKey = key;
             config = data.config;
             document.getElementById('stageName').value = data.meta.name;
+            const applyRoom = document.getElementById('applyRoom');
+            if (applyRoom) {
+                applyRoom.value = data.meta.name || '';
+            }
+            if (typeof syncApplyRoom === 'function') {
+                syncApplyRoom();
+            }
             if (typeof ensureStageConfig === 'function') ensureStageConfig();
             if (typeof refreshStageEditor === 'function') {
                 refreshStageEditor();

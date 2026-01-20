@@ -818,9 +818,21 @@ document.getElementById('saveStage')?.addEventListener('click', () => {
     });
 });
 
+function syncApplyRoom() {
+    const stageName = document.getElementById('stageName');
+    const applyRoom = document.getElementById('applyRoom');
+    if (!stageName || !applyRoom) return;
+    applyRoom.value = stageName.value.trim();
+}
+
 document.getElementById('applyStage')?.addEventListener('click', () => {
     readForm(false);
-    const room = document.getElementById('applyRoom').value || 'room1';
+    syncApplyRoom();
+    const room = document.getElementById('applyRoom').value;
+    if (!room) {
+        alert('ステージ名を入力してください');
+        return;
+    }
     socket.emit('update_config', { room, config });
     alert('適用しました');
 });
@@ -836,6 +848,10 @@ function initEditor() {
     if (editor) {
         editor.addEventListener('change', () => syncConfigJson(false));
         editor.addEventListener('blur', () => syncConfigJson(false));
+    }
+    const stageName = document.getElementById('stageName');
+    if (stageName) {
+        stageName.addEventListener('input', syncApplyRoom);
     }
 }
 
@@ -863,4 +879,5 @@ function syncConfigJson(toEditor = true) {
 window.addEventListener('DOMContentLoaded', () => {
     initEditor();
     refreshUi();
+    syncApplyRoom();
 });

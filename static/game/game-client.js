@@ -123,7 +123,7 @@ export class GameClient {
         payload.preferredRoom = String(window.autoMatchRoomHint);
       }
     } else {
-      payload.room = String(window.roomName || 'room1');
+      payload.room = String(window.roomName || '');
     }
     this.socket.emit('join', payload, (data) => {
       this.setMatchStatus(false);
