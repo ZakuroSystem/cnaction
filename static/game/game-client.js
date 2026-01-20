@@ -61,7 +61,7 @@ export class GameClient {
     this.lastAckedAction = 0;
     this.pendingActions = [];
     this.predictionSimulator = null;
-    this.moveSendIntervalMs = 200;
+    this.moveSendIntervalMs = 1000 / 15;
     this.remotePositions = new Map();
     this.remoteSmoothingWindowMs = 400;
     this.positionRequestInterval = 0.2;
