@@ -893,6 +893,7 @@ export class LocalSimulator {
     this.configRevision = 0;
     this.itemLookup = new Map();
     this.uuidLookup = new Map();
+    this.lastActionMessage = '';
   }
 
   hasState() {
@@ -1666,6 +1667,7 @@ export class LocalSimulator {
   handleInteract(playerId, position) {
     if (!this.state) return false;
     const player = this.ensurePlayer(playerId);
+    this.lastActionMessage = '';
     const x = Number(position?.x);
     const y = Number(position?.y);
     const posX = Number.isFinite(x) ? x : player.x;
@@ -1688,6 +1690,9 @@ export class LocalSimulator {
     if (this.startCooking(player, posX, posY)) {
       this.dirty = true;
       return true;
+    }
+    if (this.lastActionMessage) {
+      return false;
     }
     if (this.tryDeliver(player, posX, posY)) {
       this.dirty = true;
@@ -1821,7 +1826,13 @@ export class LocalSimulator {
   startCooking(player, x, y) {
     const item = player.currentItem;
     const actionInfo = this.resolveActionForItem(item);
-    if (!item || !actionInfo) return false;
+    if (!item) {
+      return false;
+    }
+    if (!actionInfo) {
+      this.lastActionMessage = 'この素材はこれ以上調理できません。';
+      return false;
+    }
     const zones = this.state.config?.actionZones || [];
     for (let i = 0; i < zones.length; i += 1) {
       const zone = zones[i];
@@ -1934,11 +1945,13 @@ export class LocalSimulator {
       ? this.state.config.combinationRecipes
       : COMBINATION_RECIPES;
     const overlapTolerance = PLAYER_RADIUS + 8;
+    let overlapFound = false;
     for (const other of this.state.items) {
       if (!other) continue;
       if (Math.abs(other.x - item.x) > overlapTolerance || Math.abs(other.y - item.y) > overlapTolerance) {
         continue;
       }
+      overlapFound = true;
       let recipe = findCombinationFromIndex(
         this.runtime?.combinationIndex,
         item.type,
@@ -1975,6 +1988,9 @@ export class LocalSimulator {
       other.display = formatItemDisplay(resultType, resultState);
       player.currentItem = null;
       return;
+    }
+    if (overlapFound) {
+      this.lastActionMessage = '素材の状態が足りません。調理してから重ねてください。';
     }
     const transfers = this.state.config?.transferObjects || [];
     for (const transfer of transfers) {

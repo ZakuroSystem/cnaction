@@ -15,12 +15,15 @@ export class UIManager {
     inventoryEl,
     orderListEl,
     gameOverMessageEl,
+    actionMessageEl,
   }) {
     this.timerEl = timerEl || null;
     this.scoreEl = scoreEl || null;
     this.inventoryEl = inventoryEl || null;
     this.orderListEl = orderListEl || null;
     this.gameOverMessageEl = gameOverMessageEl || null;
+    this.actionMessageEl = actionMessageEl || null;
+    this.actionMessageTimer = null;
     this.orderCards = [];
     this.lastTimerValue = null;
     this.lastScoreValue = null;
@@ -154,6 +157,22 @@ export class UIManager {
       this.gameOverMessageEl.classList.add('hidden');
       this.gameOverMessageEl.textContent = '';
     }
+  }
+
+  showActionMessage(message, durationMs = 1800) {
+    if (!this.actionMessageEl || !message) {
+      return;
+    }
+    this.actionMessageEl.textContent = message;
+    this.actionMessageEl.classList.remove('hidden');
+    if (this.actionMessageTimer) {
+      window.clearTimeout(this.actionMessageTimer);
+    }
+    this.actionMessageTimer = window.setTimeout(() => {
+      this.actionMessageEl.classList.add('hidden');
+      this.actionMessageEl.textContent = '';
+      this.actionMessageTimer = null;
+    }, durationMs);
   }
 
   getOrderIcon(order) {

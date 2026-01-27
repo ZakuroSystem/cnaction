@@ -241,6 +241,20 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
+.action-message {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  max-width: min(360px, 80vw);
+  padding: 10px 14px;
+  background: rgba(38, 50, 56, 0.9);
+  color: #fff8e1;
+  border-radius: 10px;
+  font-size: 14px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  z-index: 30;
+}
+
 #start-overlay {
   width: min(95%, 920px);
   margin: clamp(24px, 12vh, 72px) auto;

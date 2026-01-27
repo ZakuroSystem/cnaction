@@ -34,6 +34,7 @@ export class GameClient {
       inventoryEl: document.getElementById('inventory'),
       orderListEl: document.getElementById('order-list'),
       gameOverMessageEl: document.getElementById('game-over-message'),
+      actionMessageEl: document.getElementById('action-message'),
     });
     this.matchStatusEl = document.getElementById('match-status');
 
@@ -542,6 +543,9 @@ export class GameClient {
         x,
         y,
       });
+      if (!handled && this.localSimulator.lastActionMessage) {
+        this.ui.showActionMessage(this.localSimulator.lastActionMessage);
+      }
       if (handled) {
         this.queueUiFromLocal();
         this.broadcastLocalState(true);
@@ -562,6 +566,9 @@ export class GameClient {
     };
 
     const predicted = this.applyLocalInteractionPrediction(actionRecord);
+    if (!predicted && this.predictionSimulator?.lastActionMessage) {
+      this.ui.showActionMessage(this.predictionSimulator.lastActionMessage);
+    }
     actionRecord.predicted = predicted;
     this.recordPendingAction(actionRecord);
 

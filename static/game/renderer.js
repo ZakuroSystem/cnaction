@@ -282,10 +282,6 @@ export class Renderer {
       } else {
         this.drawPlaceholderCircle(px, py, size / 2, isSelf ? '#29b6f6' : '#90a4ae');
       }
-      if (isSelf) {
-        this.drawInteractionMarker(px, py);
-      }
-
       if (player.currentItem) {
         const textureKey = this.textureKeyForItem(player.currentItem);
         const itemImg = this.assets.get(textureKey);
@@ -393,14 +389,4 @@ export class Renderer {
     this.ctx.restore();
   }
 
-  drawInteractionMarker(x, y) {
-    const radius = snapSize(Math.max(4, PLAYER_RADIUS * 0.35));
-    this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-    this.ctx.lineWidth = 2;
-    this.ctx.beginPath();
-    this.ctx.arc(snap(x), snap(y), radius, 0, Math.PI * 2);
-    this.ctx.stroke();
-    this.ctx.restore();
-  }
 }
