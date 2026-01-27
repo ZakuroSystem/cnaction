@@ -61,6 +61,28 @@ document.getElementById('backList').onclick = () => {
     showList();
 };
 
+document.getElementById('deleteRoomFromList')?.addEventListener('click', () => {
+    const input = document.getElementById('deleteRoomName');
+    if (!input) return;
+    const room = input.value.trim();
+    if (!room) {
+        alert('ルーム名を入力してください。');
+        input.focus();
+        return;
+    }
+    if (!confirm(`ルーム ${room} を削除しますか？`)) {
+        return;
+    }
+    const formData = new FormData();
+    formData.append('room', room);
+    fetch('/delete_room', { method: 'POST', body: formData })
+        .then(res => res.text())
+        .then(text => {
+            alert(text);
+            input.value = '';
+        });
+});
+
 function showEditor() {
     document.getElementById('stage-list').classList.add('hidden');
     document.getElementById('stage-editor').classList.remove('hidden');

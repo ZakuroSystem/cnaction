@@ -140,6 +140,22 @@ const COMBINATION_RECIPES = [
   },
   {
     inputs: [
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+      { type: 'ingredient_lettuce', state: 'chopped' },
+    ],
+    result: { type: 'dish_lettuce_burger', state: 'assembled' },
+    name: 'レタスバーガー',
+  },
+  {
+    inputs: [
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+      { type: 'ingredient_tomato', state: 'chopped' },
+    ],
+    result: { type: 'dish_tomato_burger', state: 'assembled' },
+    name: 'トマトバーガー',
+  },
+  {
+    inputs: [
       { type: 'dish_plain_burger', state: 'assembled' },
       { type: 'ingredient_lettuce', state: 'chopped' },
     ],
