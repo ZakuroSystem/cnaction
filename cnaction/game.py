@@ -1077,6 +1077,44 @@ def try_pickup_world_item(rs: RoomState, room: str, player: Player, x: float, y:
     return False
 
 
+def _shuffle_copy(values: List[str]) -> List[str]:
+    pool = list(values)
+    random.shuffle(pool)
+    return pool
+
+
+def _choose_next_generator_food(fg: dict, choices: List[str], current_type: Optional[str]) -> Optional[str]:
+    if not choices:
+        return current_type
+
+    current = current_type if current_type in choices else None
+    cycle_raw = fg.get('_foodCycle') if isinstance(fg, dict) else None
+    cycle = [value for value in cycle_raw if value in choices] if isinstance(cycle_raw, list) else []
+
+    if not cycle:
+        cycle = _shuffle_copy(choices)
+        if len(cycle) > 1 and current and cycle[0] == current:
+            for i in range(1, len(cycle)):
+                if cycle[i] != current:
+                    cycle[0], cycle[i] = cycle[i], cycle[0]
+                    break
+
+    next_type = cycle.pop(0) if cycle else None
+    if not next_type:
+        next_type = random.choice(choices)
+
+    if len(choices) > 1 and current and next_type == current:
+        alternate = next((value for value in cycle if value != current), None)
+        if alternate is None:
+            alternate = next((value for value in choices if value != current), next_type)
+        cycle = [value for value in cycle if value != alternate]
+        next_type = alternate
+
+    if isinstance(fg, dict):
+        fg['_foodCycle'] = cycle
+    return next_type
+
+
 def try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float) -> bool:
     cfg = rs.config or {}
     generators = cfg.get('foodGenerators', [])
@@ -1090,7 +1128,8 @@ def try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float) 
             if not in_zone(x, y, fg):
                 continue
             next_type = (
-                fg.get('nextFood') if fg.get('nextFood') in food_choices else random.choice(food_choices)
+                fg.get('nextFood') if fg.get('nextFood') in food_choices
+                else _choose_next_generator_food(fg, food_choices, None)
             )
             if not next_type:
                 continue
@@ -1108,7 +1147,7 @@ def try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float) 
             if not _register_item_uuids(rs, new_itm):
                 continue
             player.currentItem = new_itm
-            fg['nextFood'] = random.choice(food_choices) if food_choices else next_type
+            fg['nextFood'] = _choose_next_generator_food(fg, food_choices, next_type) if food_choices else next_type
             return True
     return False
 

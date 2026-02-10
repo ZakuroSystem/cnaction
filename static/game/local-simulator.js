@@ -891,6 +891,52 @@ function randomChoice(list) {
   return list[idx];
 }
 
+function shuffleCopy(list) {
+  const pool = Array.isArray(list) ? [...list] : [];
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool;
+}
+
+function chooseNextGeneratorFood(generator, choices, currentType) {
+  if (!Array.isArray(choices) || choices.length === 0) return currentType || null;
+  if (!generator || typeof generator !== 'object') {
+    return randomChoice(choices) || currentType || null;
+  }
+
+  const current = choices.includes(currentType) ? currentType : null;
+  let cycle = Array.isArray(generator._foodCycle)
+    ? generator._foodCycle.filter((type) => choices.includes(type))
+    : [];
+
+  if (!cycle.length) {
+    cycle = shuffleCopy(choices);
+    if (cycle.length > 1 && current && cycle[0] === current) {
+      const swapIndex = cycle.findIndex((type) => type !== current);
+      if (swapIndex > 0) {
+        [cycle[0], cycle[swapIndex]] = [cycle[swapIndex], cycle[0]];
+      }
+    }
+  }
+
+  let next = cycle.shift();
+  if (!next) {
+    next = randomChoice(choices) || current || null;
+  }
+  if (choices.length > 1 && next === current) {
+    const fallback = cycle.find((type) => type !== current)
+      || choices.find((type) => type !== current)
+      || next;
+    cycle = cycle.filter((type) => type !== fallback);
+    next = fallback;
+  }
+
+  generator._foodCycle = cycle;
+  return next;
+}
+
 function nowSeconds() {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
     return performance.now() / 1000;
@@ -1771,7 +1817,7 @@ export class LocalSimulator {
       }
       const wanted = generator.nextFood && choices.includes(generator.nextFood)
         ? generator.nextFood
-        : randomChoice(choices);
+        : chooseNextGeneratorFood(generator, choices, null);
       if (!wanted) {
         continue;
       }
@@ -1790,7 +1836,7 @@ export class LocalSimulator {
         continue;
       }
       player.currentItem = newItem;
-      generator.nextFood = randomChoice(choices) || wanted;
+      generator.nextFood = chooseNextGeneratorFood(generator, choices, wanted);
       return true;
     }
     return false;
