@@ -201,22 +201,6 @@ COMBINATION_RECIPES = [
     },
     {
         'inputs': [
-            {'type': 'ingredient_beef_patty', 'state': 'cooked'},
-            {'type': 'ingredient_lettuce', 'state': 'chopped'},
-        ],
-        'result': {'type': 'dish_lettuce_burger', 'state': 'assembled'},
-        'name': 'レタスバーガー',
-    },
-    {
-        'inputs': [
-            {'type': 'ingredient_beef_patty', 'state': 'cooked'},
-            {'type': 'ingredient_tomato', 'state': 'chopped'},
-        ],
-        'result': {'type': 'dish_tomato_burger', 'state': 'assembled'},
-        'name': 'トマトバーガー',
-    },
-    {
-        'inputs': [
             {'type': 'dish_plain_burger', 'state': 'assembled'},
             {'type': 'ingredient_lettuce', 'state': 'chopped'},
         ],
@@ -286,6 +270,19 @@ def find_combination_recipe(recipes: List[dict], type_a: str, state_a: str, type
         if match_requirement(type_a, state_a, left) and match_requirement(type_b, state_b, right):
             return recipe
         if match_requirement(type_a, state_a, right) and match_requirement(type_b, state_b, left):
+            return recipe
+    return None
+
+
+def find_combination_recipe_by_type(recipes: List[dict], type_a: str, type_b: str) -> Optional[dict]:
+    for recipe in recipes or []:
+        inputs = recipe.get('inputs') or []
+        if len(inputs) != 2:
+            continue
+        left, right = inputs
+        if match_requirement(type_a, None, left) and match_requirement(type_b, None, right):
+            return recipe
+        if match_requirement(type_a, None, right) and match_requirement(type_b, None, left):
             return recipe
     return None
 

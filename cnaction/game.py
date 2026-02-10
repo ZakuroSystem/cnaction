@@ -19,6 +19,7 @@ from utils import (
     default_item_state,
     get_default_config,
     find_combination_recipe,
+    find_combination_recipe_by_type,
     find_combination_recipe_from_index,
     find_cooking_recipe,
     format_item_display,
@@ -1260,10 +1261,12 @@ def try_deliver_item(rs: RoomState, player: Player, x: float, y: float) -> bool:
     return True
 
 
-def try_stack_combination(rs: RoomState, room: str, player: Player, item: Item) -> bool:
+def try_stack_combination(rs: RoomState, room: str, player: Player, item: Item) -> tuple[bool, Optional[str]]:
     runtime = getattr(rs, 'runtime', {})
     stack_tolerance = PLAYER_RADIUS + 8
+    overlap_detected = False
     with _room_lock(rs):
+        recipes = rs.config.get('combinationRecipes')
         for other in rs.items:
             if other is item:
                 continue
@@ -1271,6 +1274,7 @@ def try_stack_combination(rs: RoomState, room: str, player: Player, item: Item) 
             dy = other.y - item.y
             if abs(dx) > stack_tolerance or abs(dy) > stack_tolerance:
                 continue
+            overlap_detected = True
             recipe = find_combination_recipe_from_index(
                 runtime.get('combination_index'),
                 item.type,
@@ -1280,13 +1284,20 @@ def try_stack_combination(rs: RoomState, room: str, player: Player, item: Item) 
             )
             if not recipe:
                 recipe = find_combination_recipe(
-                    rs.config.get('combinationRecipes'),
+                    recipes,
                     item.type,
                     item.state,
                     other.type,
                     other.state,
                 )
             if not recipe:
+                recipe_by_type = find_combination_recipe_by_type(
+                    recipes,
+                    item.type,
+                    other.type,
+                )
+                if recipe_by_type:
+                    return False, '焼いていない・刻んでいない素材は組み合わせできません。先に調理してください。'
                 continue
             result = recipe.get('result') or {}
             result_type = result.get('type')
@@ -1305,8 +1316,10 @@ def try_stack_combination(rs: RoomState, room: str, player: Player, item: Item) 
             other.state = result_state
             other.display = format_item_display(result_type, result_state)
             player.currentItem = None
-            return True
-    return False
+            return True, None
+    if overlap_detected:
+        return False, 'その組み合わせでは料理できません。'
+    return False, None
 
 
 def drop_item_to_world(rs: RoomState, room: str, player: Player, item: Item, x: float, y: float):

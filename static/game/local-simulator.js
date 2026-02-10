@@ -140,22 +140,6 @@ const COMBINATION_RECIPES = [
   },
   {
     inputs: [
-      { type: 'ingredient_beef_patty', state: 'cooked' },
-      { type: 'ingredient_lettuce', state: 'chopped' },
-    ],
-    result: { type: 'dish_lettuce_burger', state: 'assembled' },
-    name: 'レタスバーガー',
-  },
-  {
-    inputs: [
-      { type: 'ingredient_beef_patty', state: 'cooked' },
-      { type: 'ingredient_tomato', state: 'chopped' },
-    ],
-    result: { type: 'dish_tomato_burger', state: 'assembled' },
-    name: 'トマトバーガー',
-  },
-  {
-    inputs: [
       { type: 'dish_plain_burger', state: 'assembled' },
       { type: 'ingredient_lettuce', state: 'chopped' },
     ],
@@ -795,6 +779,29 @@ function findCombinationRecipe(recipes, typeA, stateA, typeB, stateB) {
     if (
       matchRequirement(typeA, stateA, second) &&
       matchRequirement(typeB, stateB, first)
+    ) {
+      return recipe;
+    }
+  }
+  return null;
+}
+
+
+function findCombinationRecipeByType(recipes, typeA, typeB) {
+  if (!Array.isArray(recipes)) return null;
+  for (const recipe of recipes) {
+    const inputs = Array.isArray(recipe.inputs) ? recipe.inputs : [];
+    if (inputs.length !== 2) continue;
+    const [first, second] = inputs;
+    if (
+      matchRequirement(typeA, null, first) &&
+      matchRequirement(typeB, null, second)
+    ) {
+      return recipe;
+    }
+    if (
+      matchRequirement(typeA, null, second) &&
+      matchRequirement(typeB, null, first)
     ) {
       return recipe;
     }
@@ -2025,6 +2032,10 @@ export class LocalSimulator {
         recipe = findCombinationRecipe(recipes, item.type, item.state, other.type, other.state);
       }
       if (!recipe) {
+        const recipeByType = findCombinationRecipeByType(recipes, item.type, other.type);
+        if (recipeByType) {
+          this.lastActionMessage = '焼いていない・刻んでいない素材は組み合わせできません。先に調理してください。';
+        }
         continue;
       }
       const result = recipe.result || {};
@@ -2052,7 +2063,7 @@ export class LocalSimulator {
       return;
     }
     if (overlapFound) {
-      this.lastActionMessage = '素材の状態が足りません。調理してから重ねてください。';
+      this.lastActionMessage = 'その組み合わせでは料理できません。';
     }
     const transfers = this.state.config?.transferObjects || [];
     for (const transfer of transfers) {
