@@ -77,6 +77,7 @@ export class GameClient {
     this.boundClientInteract = (payload) => this.handleClientInteract(payload);
     this.boundClientMove = (payload) => this.handleClientMove(payload);
     this.boundMoveAck = (payload) => this.handleMoveAck(payload);
+    this.boundActionFeedback = (payload) => this.handleActionFeedback(payload);
 
     this.mobileControls = new MobileControls(this);
   }
@@ -111,11 +112,13 @@ export class GameClient {
     this.socket.off('client_interact', this.boundClientInteract);
     this.socket.off('client_move', this.boundClientMove);
     this.socket.off('move_ack', this.boundMoveAck);
+    this.socket.off('action_feedback', this.boundActionFeedback);
     this.socket.on('state_update', this.boundStateUpdate);
     this.socket.on('force_disconnect', this.boundForceDisconnect);
     this.socket.on('client_interact', this.boundClientInteract);
     this.socket.on('client_move', this.boundClientMove);
     this.socket.on('move_ack', this.boundMoveAck);
+    this.socket.on('action_feedback', this.boundActionFeedback);
 
     const payload = {};
     if (window.autoMatch) {
@@ -164,6 +167,7 @@ export class GameClient {
     this.socket.off('client_interact', this.boundClientInteract);
     this.socket.off('client_move', this.boundClientMove);
     this.socket.off('move_ack', this.boundMoveAck);
+    this.socket.off('action_feedback', this.boundActionFeedback);
     this.pendingUiState = null;
     this.uiSyncAccumulator = 0;
     this.serverState = null;
@@ -783,6 +787,15 @@ export class GameClient {
     if (Number.isFinite(serverTime) && serverTime > this.lastServerTime) {
       this.lastServerTime = serverTime;
     }
+  }
+
+
+  handleActionFeedback(payload) {
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    if (!message) {
+      return;
+    }
+    this.ui.showActionMessage(message);
   }
 
   handleClientInteract(payload) {

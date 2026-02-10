@@ -252,7 +252,10 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         item.x = x
         item.y = y
 
-        if game.try_stack_combination(rs, room, player, item):
+        combined, feedback_message = game.try_stack_combination(rs, room, player, item)
+        if feedback_message:
+            socketio.emit('action_feedback', {'message': feedback_message}, room=request.sid)
+        if combined:
             finalize(True)
             return
 
