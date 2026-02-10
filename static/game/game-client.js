@@ -34,6 +34,7 @@ export class GameClient {
       inventoryEl: document.getElementById('inventory'),
       orderListEl: document.getElementById('order-list'),
       gameOverMessageEl: document.getElementById('game-over-message'),
+      actionMessageEl: document.getElementById('action-message'),
     });
     this.matchStatusEl = document.getElementById('match-status');
 
@@ -61,7 +62,7 @@ export class GameClient {
     this.lastAckedAction = 0;
     this.pendingActions = [];
     this.predictionSimulator = null;
-    this.moveSendIntervalMs = 200;
+    this.moveSendIntervalMs = 1000 / 15;
     this.remotePositions = new Map();
     this.remoteSmoothingWindowMs = 400;
     this.positionRequestInterval = 0.2;
@@ -123,7 +124,7 @@ export class GameClient {
         payload.preferredRoom = String(window.autoMatchRoomHint);
       }
     } else {
-      payload.room = String(window.roomName || 'room1');
+      payload.room = String(window.roomName || '');
     }
     this.socket.emit('join', payload, (data) => {
       this.setMatchStatus(false);
@@ -542,6 +543,9 @@ export class GameClient {
         x,
         y,
       });
+      if (!handled && this.localSimulator.lastActionMessage) {
+        this.ui.showActionMessage(this.localSimulator.lastActionMessage);
+      }
       if (handled) {
         this.queueUiFromLocal();
         this.broadcastLocalState(true);
@@ -562,6 +566,9 @@ export class GameClient {
     };
 
     const predicted = this.applyLocalInteractionPrediction(actionRecord);
+    if (!predicted && this.predictionSimulator?.lastActionMessage) {
+      this.ui.showActionMessage(this.predictionSimulator.lastActionMessage);
+    }
     actionRecord.predicted = predicted;
     this.recordPendingAction(actionRecord);
 

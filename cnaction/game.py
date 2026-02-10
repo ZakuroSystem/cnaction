@@ -37,6 +37,7 @@ from .constants import (
     PLAYFIELD_WIDTH,
     STATE_UPDATE_INTERVAL,
 )
+from .services.room_store import RoomStore
 from .values import coerce_float, coerce_int, normalize_uuid_list
 
 
@@ -52,12 +53,35 @@ _auto_match_lock = Lock()
 _auto_match_sequence = itertools.count(1)
 _default_room_config: Optional[dict] = None
 _default_room_lock = Lock()
+_room_store: Optional[RoomStore] = None
 
 
 def init(socketio: SocketIO) -> None:
     """Configure the game state module with the active SocketIO instance."""
     global _socketio
     _socketio = socketio
+
+
+def set_room_store(room_store: RoomStore) -> None:
+    """Register the room persistence helper."""
+    global _room_store
+    _room_store = room_store
+
+
+def _persist_rooms() -> None:
+    if _room_store is None:
+        return
+    snapshot: Dict[str, dict] = {}
+    for name, state in rooms.items():
+        if not isinstance(name, str):
+            continue
+        with _room_lock(state):
+            cfg = state.config if isinstance(state.config, dict) else get_default_room_config()
+            snapshot[name] = copy.deepcopy(cfg)
+    try:
+        _room_store.save(snapshot)
+    except OSError:
+        return
 
 
 def set_default_room_config(cfg: dict) -> None:
@@ -118,6 +142,7 @@ def assign_room_config(rs: RoomState, cfg: dict, revision: Optional[int] = None)
         else:
             rs.configRevision += 1
         refresh_orders_metadata(rs)
+    _persist_rooms()
 
 
 def _serialize_item(item: Optional[Item]) -> Optional[dict]:
@@ -964,6 +989,7 @@ def delete_room(room: str, *, notify: bool = True) -> bool:
     for sid, info in list(sid_to_player.items()):
         if info[0] == room:
             sid_to_player.pop(sid, None)
+    _persist_rooms()
     return True
 
 
@@ -1051,6 +1077,44 @@ def try_pickup_world_item(rs: RoomState, room: str, player: Player, x: float, y:
     return False
 
 
+def _shuffle_copy(values: List[str]) -> List[str]:
+    pool = list(values)
+    random.shuffle(pool)
+    return pool
+
+
+def _choose_next_generator_food(fg: dict, choices: List[str], current_type: Optional[str]) -> Optional[str]:
+    if not choices:
+        return current_type
+
+    current = current_type if current_type in choices else None
+    cycle_raw = fg.get('_foodCycle') if isinstance(fg, dict) else None
+    cycle = [value for value in cycle_raw if value in choices] if isinstance(cycle_raw, list) else []
+
+    if not cycle:
+        cycle = _shuffle_copy(choices)
+        if len(cycle) > 1 and current and cycle[0] == current:
+            for i in range(1, len(cycle)):
+                if cycle[i] != current:
+                    cycle[0], cycle[i] = cycle[i], cycle[0]
+                    break
+
+    next_type = cycle.pop(0) if cycle else None
+    if not next_type:
+        next_type = random.choice(choices)
+
+    if len(choices) > 1 and current and next_type == current:
+        alternate = next((value for value in cycle if value != current), None)
+        if alternate is None:
+            alternate = next((value for value in choices if value != current), next_type)
+        cycle = [value for value in cycle if value != alternate]
+        next_type = alternate
+
+    if isinstance(fg, dict):
+        fg['_foodCycle'] = cycle
+    return next_type
+
+
 def try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float) -> bool:
     cfg = rs.config or {}
     generators = cfg.get('foodGenerators', [])
@@ -1064,7 +1128,8 @@ def try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float) 
             if not in_zone(x, y, fg):
                 continue
             next_type = (
-                fg.get('nextFood') if fg.get('nextFood') in food_choices else random.choice(food_choices)
+                fg.get('nextFood') if fg.get('nextFood') in food_choices
+                else _choose_next_generator_food(fg, food_choices, None)
             )
             if not next_type:
                 continue
@@ -1082,7 +1147,7 @@ def try_spawn_from_generator(rs: RoomState, player: Player, x: float, y: float) 
             if not _register_item_uuids(rs, new_itm):
                 continue
             player.currentItem = new_itm
-            fg['nextFood'] = random.choice(food_choices) if food_choices else next_type
+            fg['nextFood'] = _choose_next_generator_food(fg, food_choices, next_type) if food_choices else next_type
             return True
     return False
 
@@ -1323,6 +1388,7 @@ def initialize_room(room: str, config: dict = None):
 
     rooms[room] = rs
     mark_dirty(room)
+    _persist_rooms()
 
 # ─────────────────────────────────────────
 

@@ -43,17 +43,22 @@ class AppSettings:
         values: MutableMapping[str, str] = dict(env or {})
         base = project_root or Path.cwd()
 
-        secret_key = values.get("CNACTION_SECRET_KEY", cls.secret_key)
-        upload_password = values.get("CNACTION_UPLOAD_PASSWORD", cls.upload_password)
-        default_room = values.get("CNACTION_DEFAULT_ROOM", cls.default_room)
+        secret_key_default = cls.__dataclass_fields__["secret_key"].default
+        upload_password_default = cls.__dataclass_fields__["upload_password"].default
+        default_room_default = cls.__dataclass_fields__["default_room"].default
+        auto_match_default = cls.__dataclass_fields__["auto_match_max_players"].default
+
+        secret_key = values.get("CNACTION_SECRET_KEY", secret_key_default)
+        upload_password = values.get("CNACTION_UPLOAD_PASSWORD", upload_password_default)
+        default_room = values.get("CNACTION_DEFAULT_ROOM", default_room_default)
         auto_match_raw = values.get("CNACTION_AUTOMATCH_MAX_PLAYERS")
         if auto_match_raw is not None:
             try:
                 auto_match_max_players = int(auto_match_raw)
             except ValueError:
-                auto_match_max_players = cls.auto_match_max_players
+                auto_match_max_players = auto_match_default
         else:
-            auto_match_max_players = cls.auto_match_max_players
+            auto_match_max_players = auto_match_default
 
         def _path(var: str, default: Path) -> Path:
             raw = values.get(var)

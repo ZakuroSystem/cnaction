@@ -282,7 +282,6 @@ export class Renderer {
       } else {
         this.drawPlaceholderCircle(px, py, size / 2, isSelf ? '#29b6f6' : '#90a4ae');
       }
-
       if (player.currentItem) {
         const textureKey = this.textureKeyForItem(player.currentItem);
         const itemImg = this.assets.get(textureKey);
@@ -389,4 +388,5 @@ export class Renderer {
     this.ctx.fillText(text, px, py);
     this.ctx.restore();
   }
+
 }

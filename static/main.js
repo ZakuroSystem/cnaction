@@ -26,9 +26,6 @@ function loadGameClientCtor() {
 }
 
 function ensureDefaults() {
-  if (!window.autoMatch && !window.roomName) {
-    window.roomName = 'room1';
-  }
   if (typeof window.autoMatch !== 'boolean') {
     window.autoMatch = false;
   }
@@ -37,17 +34,48 @@ function ensureDefaults() {
   }
 }
 
+function requestLeave() {
+  if (!window.playerId) return;
+  socket.emit('leave', { room: window.roomName || '', playerId: window.playerId });
+  window.playerId = '';
+}
+
+function showStartOverlay() {
+  const container = document.getElementById('game-container');
+  const ui = document.getElementById('ui');
+  const overlay = document.getElementById('start-overlay');
+  if (overlay) {
+    overlay.style.display = 'block';
+  }
+  if (container) {
+    container.style.display = 'none';
+  }
+  if (ui) {
+    ui.style.display = 'none';
+  }
+}
+
+function setMatchHint(message) {
+  const hint = document.getElementById('matchModeHint');
+  if (!hint) return;
+  hint.textContent = message;
+}
+
 function applyMatchSelections(roomInput) {
   if (matchMode === 'manual') {
     const value = roomInput?.value?.trim();
+    if (!value) {
+      return false;
+    }
     window.autoMatch = false;
-    window.roomName = value || 'room1';
+    window.roomName = value;
     window.autoMatchRoomHint = '';
-    return;
+    return true;
   }
   window.autoMatch = true;
   window.autoMatchRoomHint = '';
   window.roomName = '';
+  return true;
 }
 
 function disposeClient(expected) {
@@ -87,6 +115,7 @@ window.startGame = async function startGame() {
   ui.style.display = 'block';
 
   if (window.gameClient) {
+    requestLeave();
     window.gameClient.destroy();
   }
 
@@ -99,7 +128,12 @@ function bindStartButton() {
   if (!button) return;
 
   button.addEventListener('click', () => {
-    applyMatchSelections(roomInput);
+    const applied = applyMatchSelections(roomInput);
+    if (!applied && matchMode === 'manual') {
+      setMatchHint('ルーム名を入力してください。');
+      roomInput?.focus();
+      return;
+    }
     window.playerId = '';
     window
       .startGame()
@@ -114,7 +148,11 @@ function bindRoomInput() {
   roomInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && matchMode === 'manual') {
       event.preventDefault();
-      applyMatchSelections(roomInput);
+      const applied = applyMatchSelections(roomInput);
+      if (!applied) {
+        setMatchHint('ルーム名を入力してください。');
+        return;
+      }
       window.playerId = '';
       window
         .startGame()
@@ -161,8 +199,21 @@ function bindMatchModeToggle() {
   setMatchMode(initial);
 }
 
+function bindLeaveButton() {
+  const leaveButton = document.getElementById('leaveGameButton');
+  if (!leaveButton) return;
+  leaveButton.addEventListener('click', () => {
+    requestLeave();
+    if (window.gameClient) {
+      window.gameClient.destroy();
+    }
+    showStartOverlay();
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   bindMatchModeToggle();
   bindStartButton();
   bindRoomInput();
+  bindLeaveButton();
 });

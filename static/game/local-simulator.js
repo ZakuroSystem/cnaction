@@ -140,6 +140,22 @@ const COMBINATION_RECIPES = [
   },
   {
     inputs: [
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+      { type: 'ingredient_lettuce', state: 'chopped' },
+    ],
+    result: { type: 'dish_lettuce_burger', state: 'assembled' },
+    name: 'レタスバーガー',
+  },
+  {
+    inputs: [
+      { type: 'ingredient_beef_patty', state: 'cooked' },
+      { type: 'ingredient_tomato', state: 'chopped' },
+    ],
+    result: { type: 'dish_tomato_burger', state: 'assembled' },
+    name: 'トマトバーガー',
+  },
+  {
+    inputs: [
       { type: 'dish_plain_burger', state: 'assembled' },
       { type: 'ingredient_lettuce', state: 'chopped' },
     ],
@@ -506,7 +522,8 @@ function circleRectCollision(cx, cy, radius, rect) {
   const closestY = clamp(cy, rect.top, rect.bottom);
   const dx = cx - closestX;
   const dy = cy - closestY;
-  return dx * dx + dy * dy <= radius * radius;
+  const adjustedRadius = Math.max(0, radius - COLLISION_EPSILON);
+  return dx * dx + dy * dy < adjustedRadius * adjustedRadius;
 }
 
 function resolveCollisionOverlap(x, y, entries) {
@@ -681,12 +698,22 @@ export function resolvePlayerMovement(state, player, targetX, targetY) {
 
   if (entries.length) {
     const adjusted = resolveCollisionOverlap(startX, startY, entries);
-    const resultX = resolveAxis(entries, adjusted.x, adjusted.y, clampedX, 'x');
-    resolvedX = resultX.position;
-    obstaclesMoved = obstaclesMoved || resultX.obstaclesMoved;
-    const resultY = resolveAxis(entries, resolvedX, adjusted.y, clampedY, 'y');
-    resolvedY = resultY.position;
-    obstaclesMoved = obstaclesMoved || resultY.obstaclesMoved;
+    const primaryX = resolveAxis(entries, adjusted.x, adjusted.y, clampedX, 'x');
+    const primaryY = resolveAxis(entries, primaryX.position, adjusted.y, clampedY, 'y');
+    const altY = resolveAxis(entries, adjusted.x, adjusted.y, clampedY, 'y');
+    const altX = resolveAxis(entries, adjusted.x, altY.position, clampedX, 'x');
+    const primaryDistance =
+      (primaryX.position - startX) ** 2 + (primaryY.position - startY) ** 2;
+    const alternateDistance = (altX.position - startX) ** 2 + (altY.position - startY) ** 2;
+    if (alternateDistance > primaryDistance + COLLISION_EPSILON) {
+      resolvedX = altX.position;
+      resolvedY = altY.position;
+      obstaclesMoved = obstaclesMoved || altX.obstaclesMoved || altY.obstaclesMoved;
+    } else {
+      resolvedX = primaryX.position;
+      resolvedY = primaryY.position;
+      obstaclesMoved = obstaclesMoved || primaryX.obstaclesMoved || primaryY.obstaclesMoved;
+    }
   }
 
   const moved =
@@ -864,6 +891,52 @@ function randomChoice(list) {
   return list[idx];
 }
 
+function shuffleCopy(list) {
+  const pool = Array.isArray(list) ? [...list] : [];
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool;
+}
+
+function chooseNextGeneratorFood(generator, choices, currentType) {
+  if (!Array.isArray(choices) || choices.length === 0) return currentType || null;
+  if (!generator || typeof generator !== 'object') {
+    return randomChoice(choices) || currentType || null;
+  }
+
+  const current = choices.includes(currentType) ? currentType : null;
+  let cycle = Array.isArray(generator._foodCycle)
+    ? generator._foodCycle.filter((type) => choices.includes(type))
+    : [];
+
+  if (!cycle.length) {
+    cycle = shuffleCopy(choices);
+    if (cycle.length > 1 && current && cycle[0] === current) {
+      const swapIndex = cycle.findIndex((type) => type !== current);
+      if (swapIndex > 0) {
+        [cycle[0], cycle[swapIndex]] = [cycle[swapIndex], cycle[0]];
+      }
+    }
+  }
+
+  let next = cycle.shift();
+  if (!next) {
+    next = randomChoice(choices) || current || null;
+  }
+  if (choices.length > 1 && next === current) {
+    const fallback = cycle.find((type) => type !== current)
+      || choices.find((type) => type !== current)
+      || next;
+    cycle = cycle.filter((type) => type !== fallback);
+    next = fallback;
+  }
+
+  generator._foodCycle = cycle;
+  return next;
+}
+
 function nowSeconds() {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
     return performance.now() / 1000;
@@ -882,6 +955,7 @@ export class LocalSimulator {
     this.configRevision = 0;
     this.itemLookup = new Map();
     this.uuidLookup = new Map();
+    this.lastActionMessage = '';
   }
 
   hasState() {
@@ -1655,6 +1729,7 @@ export class LocalSimulator {
   handleInteract(playerId, position) {
     if (!this.state) return false;
     const player = this.ensurePlayer(playerId);
+    this.lastActionMessage = '';
     const x = Number(position?.x);
     const y = Number(position?.y);
     const posX = Number.isFinite(x) ? x : player.x;
@@ -1677,6 +1752,9 @@ export class LocalSimulator {
     if (this.startCooking(player, posX, posY)) {
       this.dirty = true;
       return true;
+    }
+    if (this.lastActionMessage) {
+      return false;
     }
     if (this.tryDeliver(player, posX, posY)) {
       this.dirty = true;
@@ -1739,7 +1817,7 @@ export class LocalSimulator {
       }
       const wanted = generator.nextFood && choices.includes(generator.nextFood)
         ? generator.nextFood
-        : randomChoice(choices);
+        : chooseNextGeneratorFood(generator, choices, null);
       if (!wanted) {
         continue;
       }
@@ -1758,7 +1836,7 @@ export class LocalSimulator {
         continue;
       }
       player.currentItem = newItem;
-      generator.nextFood = randomChoice(choices) || wanted;
+      generator.nextFood = chooseNextGeneratorFood(generator, choices, wanted);
       return true;
     }
     return false;
@@ -1810,7 +1888,13 @@ export class LocalSimulator {
   startCooking(player, x, y) {
     const item = player.currentItem;
     const actionInfo = this.resolveActionForItem(item);
-    if (!item || !actionInfo) return false;
+    if (!item) {
+      return false;
+    }
+    if (!actionInfo) {
+      this.lastActionMessage = 'この素材はこれ以上調理できません。';
+      return false;
+    }
     const zones = this.state.config?.actionZones || [];
     for (let i = 0; i < zones.length; i += 1) {
       const zone = zones[i];
@@ -1923,11 +2007,13 @@ export class LocalSimulator {
       ? this.state.config.combinationRecipes
       : COMBINATION_RECIPES;
     const overlapTolerance = PLAYER_RADIUS + 8;
+    let overlapFound = false;
     for (const other of this.state.items) {
       if (!other) continue;
       if (Math.abs(other.x - item.x) > overlapTolerance || Math.abs(other.y - item.y) > overlapTolerance) {
         continue;
       }
+      overlapFound = true;
       let recipe = findCombinationFromIndex(
         this.runtime?.combinationIndex,
         item.type,
@@ -1964,6 +2050,9 @@ export class LocalSimulator {
       other.display = formatItemDisplay(resultType, resultState);
       player.currentItem = null;
       return;
+    }
+    if (overlapFound) {
+      this.lastActionMessage = '素材の状態が足りません。調理してから重ねてください。';
     }
     const transfers = this.state.config?.transferObjects || [];
     for (const transfer of transfers) {

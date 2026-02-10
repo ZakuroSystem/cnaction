@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from flask import request
-from flask_socketio import SocketIO, join_room
+from flask_socketio import SocketIO, join_room, leave_room
 
 from cnaction import game
 from cnaction.config import sanitize_config
@@ -79,6 +79,24 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
                 return
             game.mark_dirty(room)
 
+    @socketio.on("leave")
+    def on_leave(data: dict[str, Any] | None = None):
+        info = game.sid_to_player.pop(request.sid, None)
+        if not info:
+            return
+        room, pid = info
+        leave_room(room)
+        if room in game.rooms and pid in game.rooms[room].players:
+            game.rooms[room].players.pop(pid)
+            rs = game.rooms[room]
+            if rs.hostId == pid:
+                rs.hostId = ""
+                rs.clientManaged = False
+            if not rs.players:
+                game.reset_room(room)
+                return
+            game.mark_dirty(room)
+
     @socketio.on("update_config")
     def on_update_config(data: dict[str, Any]):
         room = data.get("room")
@@ -124,7 +142,11 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         if seq_val is not None and seq_val <= last_seq:
             return
 
-        moved, obstacles_moved = game.apply_player_move(rs, player, nx, ny)
+        player.x = nx
+        player.y = ny
+        if player.currentItem:
+            player.currentItem.x = nx
+            player.currentItem.y = ny
         if seq_val is not None:
             player.lastMoveSeq = seq_val
         if rs.clientManaged:
@@ -137,8 +159,7 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             if seq_val is not None:
                 payload["seq"] = seq_val
             socketio.emit("client_move", payload, room=room)
-        if moved or obstacles_moved:
-            game.mark_dirty(room)
+        game.mark_dirty(room)
 
         ack = {
             "playerId": pid,
@@ -200,9 +221,13 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             except (TypeError, ValueError):
                 nx = ny = None
             if nx is not None and ny is not None:
-                moved, obstacles_moved = game.apply_player_move(rs, player, nx, ny)
-                x, y = player.x, player.y
-                position_updated = moved or obstacles_moved
+                player.x = nx
+                player.y = ny
+                if player.currentItem:
+                    player.currentItem.x = nx
+                    player.currentItem.y = ny
+                x, y = nx, ny
+                position_updated = True
 
         if player.currentItem is None:
             if game.try_pickup_world_item(rs, room, player, x, y):

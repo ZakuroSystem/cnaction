@@ -18,44 +18,65 @@
 <body>
   <div id="start-overlay">
     <h1>ゲーム開始</h1>
-    <div class="match-mode" role="group" aria-labelledby="matchModeLabel">
-      <span id="matchModeLabel" class="match-mode__label">入室方法</span>
-      <div class="match-mode__options">
-        <label class="match-mode__option">
+    <div class="start-layout">
+      <div class="start-layout__controls">
+        <div class="match-mode" role="group" aria-labelledby="matchModeLabel">
+          <span id="matchModeLabel" class="match-mode__label">入室方法</span>
+          <div class="match-mode__options">
+            <label class="match-mode__option">
+              <input
+                type="radio"
+                name="matchMode"
+                value="auto"
+                checked
+              />
+              <span>オートマッチ</span>
+            </label>
+            <label class="match-mode__option">
+              <input type="radio" name="matchMode" value="manual" />
+              <span>ルーム選択</span>
+            </label>
+          </div>
+          <p id="matchModeHint" class="match-mode__hint">
+            空いているルームに自動で参加します。
+          </p>
+        </div>
+        <label class="form-field" id="roomNameField" hidden>
+          <span class="form-field__label">ルーム名</span>
           <input
-            type="radio"
-            name="matchMode"
-            value="auto"
-            checked
+            type="text"
+            id="roomName"
+            inputmode="latin"
+            autocomplete="off"
           />
-          <span>オートマッチ</span>
         </label>
-        <label class="match-mode__option">
-          <input type="radio" name="matchMode" value="manual" />
-          <span>ルーム選択</span>
-        </label>
+        <img
+          id="startButton"
+          src="/static/assets/start_button.png"
+          alt="スタート"
+          class="start-button"
+        />
+        <p class="start-overlay__link"><a href="/editor">設定モードへ</a></p>
       </div>
-      <p id="matchModeHint" class="match-mode__hint">
-        空いているルームに自動で参加します。
-      </p>
+      <section class="game-guide" aria-labelledby="gameGuideTitle">
+        <h2 id="gameGuideTitle">ゲームの説明</h2>
+        <div class="game-guide__section">
+          <h3>操作方法</h3>
+          <ul>
+            <li>移動: 矢印キー / WASD</li>
+            <li>アクション: スペースキー</li>
+          </ul>
+        </div>
+        <div class="game-guide__section">
+          <h3>遊び方</h3>
+          <ul>
+            <li>オーダーに表示された料理を順番に作ります。</li>
+            <li>素材を拾って調理し、完成した料理を提出してスコアを稼ぎます。</li>
+            <li>制限時間内にできるだけ多くのオーダーをこなしましょう。</li>
+          </ul>
+        </div>
+      </section>
     </div>
-    <label class="form-field" id="roomNameField" hidden>
-      <span class="form-field__label">ルーム名</span>
-      <input
-        type="text"
-        id="roomName"
-        value="room1"
-        inputmode="latin"
-        autocomplete="off"
-      />
-    </label>
-    <img
-      id="startButton"
-      src="/static/assets/start_button.png"
-      alt="スタート"
-      class="start-button"
-    />
-    <p class="start-overlay__link"><a href="/editor">設定モードへ</a></p>
   </div>
 
   <div id="ui" style="display: none">
@@ -78,6 +99,9 @@
           <div id="timer" class="status-panel__item">タイマー: 60</div>
           <div id="score" class="status-panel__item">スコア: 0</div>
           <div id="inventory" class="status-panel__item">持ち物: なし</div>
+          <button type="button" id="leaveGameButton" class="exit-button">
+            ゲームを退出
+          </button>
         </div>
       </aside>
       <div class="play-layout__stage">
@@ -90,22 +114,12 @@
       role="status"
       aria-live="polite"
     ></div>
-    <div id="mobile-controls" class="mobile-controls" aria-hidden="true">
-      <div class="mobile-controls__hint" aria-hidden="true">
-        <p class="mobile-controls__hint-text">
-          画面右側を長押しで右移動、<br />画面下部を長押しで下移動
-        </p>
-      </div>
-      <div class="mobile-controls__surface mobile-controls__surface--action">
-        <button
-          type="button"
-          class="mobile-controls__button mobile-controls__button--action"
-          data-action="interact"
-          aria-label="決定 / アクション"
-        >アクション</button>
-        <span class="mobile-controls__label">決定</span>
-      </div>
-    </div>
+    <div
+      id="action-message"
+      class="action-message hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
   </div>
 
 </body>

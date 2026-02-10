@@ -20,6 +20,10 @@ document.getElementById('createStage').onclick = () => {
     if (typeof loadDefaultConfig === 'function') {
         loadDefaultConfig();
     }
+    const applyRoom = document.getElementById('applyRoom');
+    if (applyRoom) {
+        applyRoom.value = '';
+    }
     showEditor();
 };
 
@@ -32,6 +36,13 @@ document.getElementById('stageTable').addEventListener('click', e => {
             currentKey = key;
             config = data.config;
             document.getElementById('stageName').value = data.meta.name;
+            const applyRoom = document.getElementById('applyRoom');
+            if (applyRoom) {
+                applyRoom.value = data.meta.name || '';
+            }
+            if (typeof syncApplyRoom === 'function') {
+                syncApplyRoom();
+            }
             if (typeof ensureStageConfig === 'function') ensureStageConfig();
             if (typeof refreshStageEditor === 'function') {
                 refreshStageEditor();
@@ -49,6 +60,28 @@ document.getElementById('stageTable').addEventListener('click', e => {
 document.getElementById('backList').onclick = () => {
     showList();
 };
+
+document.getElementById('deleteRoomFromList')?.addEventListener('click', () => {
+    const input = document.getElementById('deleteRoomName');
+    if (!input) return;
+    const room = input.value.trim();
+    if (!room) {
+        alert('ルーム名を入力してください。');
+        input.focus();
+        return;
+    }
+    if (!confirm(`ルーム ${room} を削除しますか？`)) {
+        return;
+    }
+    const formData = new FormData();
+    formData.append('room', room);
+    fetch('/delete_room', { method: 'POST', body: formData })
+        .then(res => res.text())
+        .then(text => {
+            alert(text);
+            input.value = '';
+        });
+});
 
 function showEditor() {
     document.getElementById('stage-list').classList.add('hidden');
