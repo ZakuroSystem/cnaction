@@ -287,6 +287,15 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         game.apply_client_state(room, snapshot)
         game.mark_dirty(room)
 
+    @socketio.on("request_state")
+    def on_request_state(data: dict[str, Any]):
+        room = data.get("room")
+        if room not in game.rooms:
+            return {"state": None, "serverTime": time.time()}
+        state = game.serialize_room_state(game.rooms[room], include_positions=True)
+        state["serverTime"] = time.time()
+        return {"state": state, "serverTime": state["serverTime"]}
+
     @socketio.on("request_positions")
     def on_request_positions(data: dict[str, Any]):
         room = data.get("room")

@@ -180,6 +180,25 @@ def _serialize_player(player: Player, *, include_position: bool = True) -> dict:
 
 def serialize_room_state(rs: RoomState, *, include_positions: bool = True) -> dict:
     with _room_lock(rs):
+        cfg = rs.config if isinstance(rs.config, dict) else {}
+        action_blocks = []
+        for index, zone in enumerate(cfg.get('actionZones') or []):
+            if not isinstance(zone, dict):
+                continue
+            cooking = zone.get('cooking') if isinstance(zone.get('cooking'), dict) else None
+            action_blocks.append(
+                {
+                    'key': f"action_{index}",
+                    'index': index,
+                    'x': zone.get('x'),
+                    'y': zone.get('y'),
+                    'width': zone.get('width'),
+                    'height': zone.get('height'),
+                    'action': zone.get('action'),
+                    'occupied': bool(zone.get('occupied')),
+                    'cooking': dict(cooking) if cooking else None,
+                }
+            )
         return {
             'players': {
                 pid: _serialize_player(p, include_position=include_positions)
@@ -190,7 +209,8 @@ def serialize_room_state(rs: RoomState, *, include_positions: bool = True) -> di
             'score': rs.score,
             'timer': rs.timer,
             'gameOver': rs.gameOver,
-            'config': rs.config,
+            'config': cfg,
+            'actionBlocks': action_blocks,
             'nextItemId': rs.nextItemId,
             'resetScheduled': rs.resetScheduled,
             'hostId': rs.hostId,

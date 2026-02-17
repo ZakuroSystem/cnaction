@@ -62,11 +62,11 @@ export class GameClient {
     this.lastAckedAction = 0;
     this.pendingActions = [];
     this.predictionSimulator = null;
-    this.moveSendIntervalMs = 1000 / 15;
+    this.moveSendIntervalMs = 100;
     this.remotePositions = new Map();
-    this.remoteSmoothingWindowMs = 400;
-    this.positionRequestInterval = 0.2;
-    this.positionRequestTimer = 0;
+    this.remoteSmoothingWindowMs = 300;
+    this.statePullInterval = 0.1;
+    this.statePullTimer = 0;
     this.initialSpawn = null;
     this.deliverySuccessSoundPath = '/static/se/haizen_ok.mp3';
     this.deliveryFailureSoundPath = '/static/se/haizen_ng.mp3';
@@ -105,7 +105,7 @@ export class GameClient {
     if (this.remotePositions) {
       this.remotePositions.clear();
     }
-    this.positionRequestTimer = 0;
+    this.statePullTimer = 0;
     this.initialSpawn = null;
     this.setMatchStatus(window.autoMatch, 'マッチング中...');
     window.addEventListener('keydown', this.boundKeyDown);
@@ -195,7 +195,7 @@ export class GameClient {
     if (this.remotePositions) {
       this.remotePositions.clear();
     }
-    this.positionRequestTimer = 0;
+    this.statePullTimer = 0;
     this.initialSpawn = null;
     this.setMatchStatus(false);
     if (this.mobileControls) {
@@ -277,6 +277,7 @@ export class GameClient {
       this.lastServerTime = serverTime;
     }
     const cloned = this.cloneState(state);
+    this.updateRemotePositions(cloned?.players || {});
     this.applyRemotePositionsToState(cloned);
     if (
       !this.isHost &&
@@ -435,12 +436,8 @@ export class GameClient {
       this.pendingMoves = [];
     }
     if (!this.localPosition) {
-      let baseX = toFiniteNumber(me?.x);
-      let baseY = toFiniteNumber(me?.y);
-      if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
-        baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
-        baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
-      }
+      const baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : NaN;
+      const baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : NaN;
       if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
         this.localPosition = { x: baseX, y: baseY };
         this.lastSentPosition = { x: baseX, y: baseY };
@@ -596,12 +593,8 @@ export class GameClient {
     if (!me) return;
 
     if (!this.localPosition) {
-      let baseX = toFiniteNumber(me?.x);
-      let baseY = toFiniteNumber(me?.y);
-      if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
-        baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
-        baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
-      }
+      const baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : NaN;
+      const baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : NaN;
       if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
         this.localPosition = { x: baseX, y: baseY };
       }
@@ -655,7 +648,7 @@ export class GameClient {
 
     this.clampLocalPosition();
     this.maybeSendMove(movement.moving);
-    this.maybeRequestRemotePositions(dt);
+    this.maybePullState(dt);
 
     if (this.isHost && this.localSimulator) {
       this.localSimulator.update(dt);
@@ -1026,47 +1019,35 @@ export class GameClient {
     this.moveSequence += 1;
     const seq = this.moveSequence;
     this.recordPendingMove(seq, this.localPosition.x, this.localPosition.y);
+    const carrying = this.serverState?.players?.[window.playerId]?.currentItem;
     this.socket.emit('move', {
       room: window.roomName,
       playerId: window.playerId,
       x: this.localPosition.x,
       y: this.localPosition.y,
       seq,
+      carryingType: carrying?.type || null,
+      carryingState: carrying?.state || null,
     });
   }
 
-  maybeRequestRemotePositions(dt) {
-    if (!window.roomName || !this.serverState) {
+  maybePullState(dt) {
+    if (!window.roomName) {
       return;
     }
-    const players = this.serverState.players || {};
-    const targets = Object.keys(players).filter((pid) => pid && pid !== window.playerId);
-    if (!targets.length) {
-      this.positionRequestTimer = 0;
+    this.statePullTimer += dt;
+    if (this.statePullTimer < this.statePullInterval) {
       return;
     }
-    this.positionRequestTimer += dt;
-    if (this.positionRequestTimer < this.positionRequestInterval) {
-      return;
-    }
-    this.positionRequestTimer = 0;
-    this.socket.emit(
-      'request_positions',
-      { room: window.roomName, players: targets },
-      (response) => this.handlePositionResponse(response)
-    );
+    this.statePullTimer = 0;
+    this.socket.emit('request_state', { room: window.roomName }, (response) => this.handleStateResponse(response));
   }
 
-  handlePositionResponse(response) {
-    if (!response || typeof response !== 'object') {
+  handleStateResponse(response) {
+    if (!response || typeof response !== 'object' || !response.state) {
       return;
     }
-    const positions = response.players;
-    this.updateRemotePositions(positions);
-    const serverTime = Number(response?.serverTime);
-    if (Number.isFinite(serverTime) && serverTime > this.lastServerTime) {
-      this.lastServerTime = serverTime;
-    }
+    this.handleStateUpdate(response.state);
   }
 
   updateRemotePositions(positions) {
@@ -1078,7 +1059,6 @@ export class GameClient {
     }
     const now = performance.now();
     const windowMs = Math.max(0, Number(this.remoteSmoothingWindowMs) || 0);
-    const windowStart = windowMs > 0 ? now - windowMs : -Infinity;
     Object.entries(positions).forEach(([pid, value]) => {
       if (!pid || pid === window.playerId) {
         return;
@@ -1088,58 +1068,17 @@ export class GameClient {
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return;
       }
-      const existing = this.remotePositions.get(pid) || { samples: [] };
-      existing.samples = Array.isArray(existing.samples) ? existing.samples : [];
-      existing.samples.push({ x, y, timestamp: now });
-      existing.samples = existing.samples
-        .filter((sample) => Number.isFinite(sample?.timestamp) && sample.timestamp >= windowStart)
-        .sort((a, b) => a.timestamp - b.timestamp);
-      if (!existing.samples.length) {
-        existing.samples.push({ x, y, timestamp: now });
-      }
-      const samples = existing.samples;
-      const effectiveWindowStart = Math.max(windowStart, samples[0]?.timestamp ?? windowStart);
-      let durationSum = 0;
-      let weightedX = 0;
-      let weightedY = 0;
-      for (let i = 0; i < samples.length; i += 1) {
-        const sample = samples[i];
-        if (!sample) {
-          continue;
-        }
-        const start = Math.max(sample.timestamp, effectiveWindowStart);
-        const nextTimestamp =
-          i < samples.length - 1
-            ? Math.max(sample.timestamp, samples[i + 1].timestamp)
-            : now;
-        const end = Math.max(start, Math.min(nextTimestamp, now));
-        const duration = end - start;
-        if (duration <= 0) {
-          continue;
-        }
-        durationSum += duration;
-        weightedX += sample.x * duration;
-        weightedY += sample.y * duration;
-      }
-      if (durationSum > 0) {
-        existing.x = weightedX / durationSum;
-        existing.y = weightedY / durationSum;
-      } else {
-        const lastSample = samples[samples.length - 1];
-        existing.x = Number.isFinite(lastSample?.x) ? lastSample.x : x;
-        existing.y = Number.isFinite(lastSample?.y) ? lastSample.y : y;
-      }
-      existing.timestamp = now;
-      this.remotePositions.set(pid, existing);
-      if (this.serverState?.players?.[pid]) {
-        const player = this.serverState.players[pid];
-        player.x = existing.x;
-        player.y = existing.y;
-        if (player.currentItem) {
-          player.currentItem.x = existing.x;
-          player.currentItem.y = existing.y;
-        }
-      }
+      const current = this.remotePositions.get(pid);
+      const fromX = Number.isFinite(current?.x) ? current.x : x;
+      const fromY = Number.isFinite(current?.y) ? current.y : y;
+      this.remotePositions.set(pid, {
+        x,
+        y,
+        fromX,
+        fromY,
+        startTime: now,
+        endTime: now + windowMs,
+      });
     });
     if (this.serverState?.players) {
       const active = new Set(Object.keys(this.serverState.players));
@@ -1155,6 +1094,7 @@ export class GameClient {
     if (!state || !state.players || !this.remotePositions) {
       return;
     }
+    const now = performance.now();
     for (const [pid, info] of this.remotePositions.entries()) {
       if (pid === window.playerId) {
         continue;
@@ -1163,10 +1103,21 @@ export class GameClient {
       if (!player) {
         continue;
       }
-      const x = toFiniteNumber(info?.x);
-      const y = toFiniteNumber(info?.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const fromX = toFiniteNumber(info?.fromX);
+      const fromY = toFiniteNumber(info?.fromY);
+      const toX = toFiniteNumber(info?.x);
+      const toY = toFiniteNumber(info?.y);
+      const startTime = toFiniteNumber(info?.startTime);
+      const endTime = toFiniteNumber(info?.endTime);
+      if (!Number.isFinite(toX) || !Number.isFinite(toY)) {
         continue;
+      }
+      let x = toX;
+      let y = toY;
+      if (Number.isFinite(fromX) && Number.isFinite(fromY) && Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
+        const t = Math.max(0, Math.min(1, (now - startTime) / (endTime - startTime)));
+        x = fromX + (toX - fromX) * t;
+        y = fromY + (toY - fromY) * t;
       }
       player.x = x;
       player.y = y;
