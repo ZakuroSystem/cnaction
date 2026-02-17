@@ -1229,26 +1229,27 @@ def start_cooking_action(
     return False
 
 
-def try_deliver_item(rs: RoomState, player: Player, x: float, y: float) -> bool:
+def try_deliver_item(rs: RoomState, player: Player, x: float, y: float) -> tuple[bool, bool]:
     item = player.currentItem
     if not item:
-        return False
+        return False, False
     cfg = rs.config or {}
     delivery_zone = cfg.get('deliveryZone')
     if not delivery_zone or not in_zone(x, y, delivery_zone):
-        return False
+        return False, False
     mapping = cfg.get('orderMapping', {})
     delivered = mapping.get(item.type)
     if not delivered:
-        return False
+        return False, False
     with _room_lock(rs):
         if item.type.startswith('dish_'):
             expected_state = default_item_state(item.type)
         else:
             expected_state = 'cooked'
         if expected_state and item.state != expected_state:
-            return False
+            return False, False
         expected = rs.orders[0]['dish'] if rs.orders else None
+        success = delivered == expected
         if delivered == expected:
             rs.score += 10
             if rs.orders:
@@ -1258,7 +1259,7 @@ def try_deliver_item(rs: RoomState, player: Player, x: float, y: float) -> bool:
             rs.score -= cfg.get('wrongOrderPenalty', 5)
         player.currentItem = None
         _unregister_item_uuids(rs, item)
-    return True
+    return True, success
 
 
 def try_stack_combination(rs: RoomState, room: str, player: Player, item: Item) -> tuple[bool, Optional[str]]:
@@ -1366,6 +1367,7 @@ def reset_room(room: str) -> bool:
         rs.clientManaged = False
     refresh_orders_metadata(rs)
     mark_dirty(room)
+    _persist_rooms()
     return True
 
 

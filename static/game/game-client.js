@@ -68,6 +68,8 @@ export class GameClient {
     this.positionRequestInterval = 0.2;
     this.positionRequestTimer = 0;
     this.initialSpawn = null;
+    this.deliverySuccessSound = this.createSound('/static/se/haizen_ok.mp3');
+    this.deliveryFailureSound = this.createSound('/static/se/haizen_ng.mp3');
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -790,7 +792,42 @@ export class GameClient {
   }
 
 
+  createSound(src) {
+    if (!src) {
+      return null;
+    }
+    const audio = new Audio(src);
+    audio.preload = 'auto';
+    return audio;
+  }
+
+  playDeliverySound(success) {
+    const audio = success ? this.deliverySuccessSound : this.deliveryFailureSound;
+    if (!audio) {
+      return;
+    }
+    try {
+      audio.currentTime = 0;
+      const promise = audio.play();
+      if (promise && typeof promise.catch === 'function') {
+        promise.catch(() => {});
+      }
+    } catch (error) {
+      // ignore autoplay errors
+    }
+  }
+
   handleActionFeedback(payload) {
+    const deliveryResult = payload?.deliveryResult;
+    if (deliveryResult === 'success') {
+      this.playDeliverySound(true);
+      return;
+    }
+    if (deliveryResult === 'failure') {
+      this.playDeliverySound(false);
+      return;
+    }
+
     const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
     if (!message) {
       return;
