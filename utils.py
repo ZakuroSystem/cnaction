@@ -627,8 +627,8 @@ def get_default_config() -> dict:
     ingredient_list = ingredient_types()
     dish_list = dish_types()
     return {
-        'gameTime': 150,
-        'orderTimeLimit': 90,
+        'gameTime': 240,
+        'orderTimeLimit': 150,
         'wrongOrderPenalty': 5,
         'actionZones': [
             {'x': 100, 'y': 500, 'width': 150, 'height': 150,

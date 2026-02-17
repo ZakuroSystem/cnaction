@@ -245,7 +245,13 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             finalize(True)
             return
 
-        if game.try_deliver_item(rs, player, x, y):
+        delivered, success = game.try_deliver_item(rs, player, x, y)
+        if delivered:
+            socketio.emit(
+                'action_feedback',
+                {'deliveryResult': 'success' if success else 'failure'},
+                room=request.sid,
+            )
             finalize(True)
             return
 
