@@ -141,6 +141,8 @@ function ensureTexture(key) {
 }
 
 let editor = null;
+let initialRoomName = "";
+let roomNameEditable = true;
 
 function ensureParticleConfig() {
     if (!config || typeof config !== 'object') return;
@@ -859,17 +861,33 @@ function saveStageConfig() {
 }
 
 function syncApplyRoom() {
-    const stageName = document.getElementById('stageName');
     const applyRoom = document.getElementById('applyRoom');
-    if (!stageName || !applyRoom) return;
-    applyRoom.value = stageName.value.trim();
+    if (!applyRoom) return;
+    applyRoom.value = applyRoom.value.trim();
 }
+
+function setApplyRoomEditable(editable, roomName = '') {
+    const applyRoom = document.getElementById('applyRoom');
+    if (!applyRoom) return;
+    roomNameEditable = Boolean(editable);
+    applyRoom.readOnly = !roomNameEditable;
+    applyRoom.classList.toggle('bg-light', !roomNameEditable);
+    if (roomName !== undefined && roomName !== null) {
+      applyRoom.value = String(roomName);
+    }
+    initialRoomName = applyRoom.value.trim();
+}
+window.setApplyRoomEditable = setApplyRoomEditable;
 
 document.getElementById('saveApplyStage')?.addEventListener('click', () => {
     syncApplyRoom();
-    const room = document.getElementById('applyRoom').value;
+    const room = document.getElementById('applyRoom').value.trim();
     if (!room) {
         alert('ステージ名を入力してください');
+        return;
+    }
+    if (!roomNameEditable && initialRoomName && room !== initialRoomName) {
+        alert('既存ルームでは保存先のルーム名を変更できません。');
         return;
     }
     saveStageConfig()
@@ -987,10 +1005,6 @@ function initEditor() {
         editor.addEventListener('change', () => syncConfigJson(false));
         editor.addEventListener('blur', () => syncConfigJson(false));
     }
-    const stageName = document.getElementById('stageName');
-    if (stageName) {
-        stageName.addEventListener('input', syncApplyRoom);
-    }
 }
 
 function syncConfigJson(toEditor = true) {
@@ -1018,6 +1032,6 @@ window.addEventListener('DOMContentLoaded', () => {
     initEditor();
     bindParticleControls();
     refreshUi();
-    syncApplyRoom();
+    setApplyRoomEditable(true, '');
     loadParticleList();
 });

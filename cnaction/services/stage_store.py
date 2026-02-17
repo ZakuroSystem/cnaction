@@ -48,9 +48,24 @@ class StageStore:
             raise ValueError("Stage config must be a mapping")
         if not isinstance(password, str) or not password.strip():
             raise ValueError("Stage password is required")
+
+        normalized_name = str(name or key).strip()
+        for path in self.directory.glob("*.json"):
+            if path.stem == key:
+                continue
+            try:
+                with path.open("r", encoding="utf-8") as stream:
+                    existing = json.load(stream)
+            except (OSError, json.JSONDecodeError):
+                continue
+            meta = existing.get("meta", {}) if isinstance(existing, dict) else {}
+            existing_name = str(meta.get("name") or path.stem).strip()
+            if existing_name == normalized_name and bool(meta.get("locked")):
+                raise ValueError("そのルーム名は既に使われています")
+
         payload = {
             "meta": {
-                "name": name,
+                "name": normalized_name,
                 "updated": int(time.time()),
                 "locked": bool(locked),
                 "password": password.strip(),

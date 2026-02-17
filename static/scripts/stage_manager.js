@@ -20,9 +20,11 @@ document.getElementById('createStage').onclick = () => {
     if (typeof loadDefaultConfig === 'function') {
         loadDefaultConfig();
     }
-    const applyRoom = document.getElementById('applyRoom');
-    if (applyRoom) {
-        applyRoom.value = '';
+    if (typeof setApplyRoomEditable === 'function') {
+        setApplyRoomEditable(true, '');
+    } else {
+        const applyRoom = document.getElementById('applyRoom');
+        if (applyRoom) applyRoom.value = '';
     }
     const pwInput = document.getElementById('stagePassword');
     if (pwInput) pwInput.value = '';
@@ -82,12 +84,11 @@ document.getElementById('stageTable').addEventListener('click', e => {
             if (pwInput) pwInput.value = data.meta.password || '';
             const lockInput = document.getElementById('stageLocked');
             if (lockInput) lockInput.checked = Boolean(data.meta.locked);
-            const applyRoom = document.getElementById('applyRoom');
-            if (applyRoom) {
-                applyRoom.value = data.meta.name || '';
-            }
-            if (typeof syncApplyRoom === 'function') {
-                syncApplyRoom();
+            if (typeof setApplyRoomEditable === 'function') {
+                setApplyRoomEditable(false, data.meta.name || '');
+            } else {
+                const applyRoom = document.getElementById('applyRoom');
+                if (applyRoom) applyRoom.value = data.meta.name || '';
             }
             if (typeof ensureStageConfig === 'function') ensureStageConfig();
             if (typeof refreshStageEditor === 'function') {
