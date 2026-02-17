@@ -68,8 +68,8 @@ export class GameClient {
     this.positionRequestInterval = 0.2;
     this.positionRequestTimer = 0;
     this.initialSpawn = null;
-    this.deliverySuccessSound = this.createSound('/static/se/haizen_ok.mp3');
-    this.deliveryFailureSound = this.createSound('/static/se/haizen_ng.mp3');
+    this.deliverySuccessSoundPath = '/static/se/haizen_ok.mp3';
+    this.deliveryFailureSoundPath = '/static/se/haizen_ng.mp3';
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -796,13 +796,16 @@ export class GameClient {
     if (!src) {
       return null;
     }
-    const audio = new Audio(src);
+    const separator = src.includes('?') ? '&' : '?';
+    const cacheBustedSrc = `${src}${separator}v=${Date.now()}`;
+    const audio = new Audio(cacheBustedSrc);
     audio.preload = 'auto';
     return audio;
   }
 
   playDeliverySound(success) {
-    const audio = success ? this.deliverySuccessSound : this.deliveryFailureSound;
+    const src = success ? this.deliverySuccessSoundPath : this.deliveryFailureSoundPath;
+    const audio = this.createSound(src);
     if (!audio) {
       return;
     }
