@@ -14,6 +14,9 @@ from ..services.uploads import UploadService
 from ..settings import AppSettings
 
 
+_copy_rate_limit: dict[str, float] = {}
+
+
 def _static_mtime(static_folder: Path, resource: str) -> int:
     try:
         target = static_folder / resource
@@ -29,7 +32,7 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
     def api_stages():
         if request.method == "GET":
             stages = [
-                {"key": summary.key, "name": summary.name, "updated": summary.updated}
+                {"key": summary.key, "name": summary.name, "updated": summary.updated, "locked": summary.locked}
                 for summary in stage_store.list()
             ]
             return jsonify(stages=stages)
@@ -38,8 +41,17 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
         key = str(payload.get("key") or int(time.time()))
         name = str(payload.get("name") or key)
         config = payload.get("config") or {}
+        password = str(payload.get("password") or "").strip()
+        locked = bool(payload.get("locked", False))
+
+        existing = stage_store.load(key)
+        if existing:
+            meta = existing.get("meta", {}) if isinstance(existing, dict) else {}
+            if bool(meta.get("locked")) and password != str(meta.get("password") or ""):
+                return jsonify(ok=False, msg="ロック中ステージのため、正しいパスワードが必要です"), 403
+
         try:
-            stage_store.save(key, name, config)
+            stage_store.save(key, name, config, password=password, locked=locked)
         except ValueError as exc:
             return jsonify(ok=False, msg=str(exc)), 400
         except OSError as exc:
@@ -51,7 +63,29 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
         data = stage_store.load(key)
         if data is None:
             return jsonify(error="not found"), 404
+        meta = data.get("meta", {}) if isinstance(data, dict) else {}
+        if bool(meta.get("locked")):
+            password = request.args.get("password", "")
+            if password != str(meta.get("password") or ""):
+                return jsonify(error="locked", msg="パスワードが必要です"), 403
         return jsonify(data)
+
+    @blueprint.route("/api/stages/<key>/copy", methods=["POST"])
+    def api_stage_copy(key: str):
+        client_key = request.remote_addr or "global"
+        now = time.time()
+        last = _copy_rate_limit.get(client_key, 0.0)
+        wait = 10.0 - (now - last)
+        if wait > 0:
+            return jsonify(ok=False, msg=f"コピーは10秒に1回までです。あと{int(wait) + 1}秒待ってください"), 429
+
+        new_key = str(int(now * 1000))
+        try:
+            copied = stage_store.copy_as_new(key, new_key)
+        except ValueError as exc:
+            return jsonify(ok=False, msg=str(exc)), 404
+        _copy_rate_limit[client_key] = now
+        return jsonify(ok=True, **copied)
 
     @blueprint.route("/api/default_config")
     def api_default_config():

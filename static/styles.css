@@ -444,6 +444,28 @@ body {
   margin-top: 4px;
 }
 
+
+.guide-item-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.guide-item-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guide-item-list img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 0 0 1px #ffe0b2;
+  flex-shrink: 0;
+}
+
 .start-button {
   width: 100%;
   max-width: 260px;

@@ -10,7 +10,7 @@ async function StageList() {
         tr.innerHTML = `
             <td>${s.name}</td>
             <td>${new Date(s.updated * 1000).toLocaleString()}</td>
-            <td><button data-edit="${s.key}">編集</button></td>`;
+            <td>${s.locked ? "🔒" : ""} <button data-edit="${s.key}">編集</button> <button data-copy="${s.key}">コピー</button></td>`;
         tbody.appendChild(tr);
     });
 }
@@ -24,18 +24,64 @@ document.getElementById('createStage').onclick = () => {
     if (applyRoom) {
         applyRoom.value = '';
     }
+    const pwInput = document.getElementById('stagePassword');
+    if (pwInput) pwInput.value = '';
+    const lockInput = document.getElementById('stageLocked');
+    if (lockInput) lockInput.checked = false;
     showEditor();
 };
 
 document.getElementById('stageTable').addEventListener('click', e => {
-    const key = e.target.dataset.edit;
-    if (!key) return;
-    fetch(`/api/stages/${key}`)
-        .then(r => r.json())
+    const editKey = e.target.dataset.edit;
+    const copyKey = e.target.dataset.copy;
+
+    if (copyKey) {
+        fetch(`/api/stages/${copyKey}/copy`, { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ok) {
+                    alert(data.msg || 'コピーに失敗しました');
+                    return;
+                }
+                alert(`コピーしました: ${data.name}`);
+                StageList();
+            });
+        return;
+    }
+
+    if (!editKey) return;
+    const tryLoad = (password = '') => {
+        const query = password ? `?password=${encodeURIComponent(password)}` : '';
+        return fetch(`/api/stages/${editKey}${query}`);
+    };
+
+    tryLoad()
+        .then(async (r) => {
+            if (r.status === 403) {
+                const pw = prompt('このステージはロックされています。編集パスワードを入力してください。', '');
+                if (!pw) {
+                    throw new Error('キャンセルしました');
+                }
+                const rr = await tryLoad(pw);
+                if (!rr.ok) {
+                    const err = await rr.json().catch(() => ({}));
+                    throw new Error(err.msg || 'パスワードが違います');
+                }
+                return rr.json();
+            }
+            if (!r.ok) {
+                throw new Error('読み込みに失敗しました');
+            }
+            return r.json();
+        })
         .then(data => {
-            currentKey = key;
+            currentKey = editKey;
             config = data.config;
             document.getElementById('stageName').value = data.meta.name;
+            const pwInput = document.getElementById('stagePassword');
+            if (pwInput) pwInput.value = data.meta.password || '';
+            const lockInput = document.getElementById('stageLocked');
+            if (lockInput) lockInput.checked = Boolean(data.meta.locked);
             const applyRoom = document.getElementById('applyRoom');
             if (applyRoom) {
                 applyRoom.value = data.meta.name || '';
@@ -54,6 +100,11 @@ document.getElementById('stageTable').addEventListener('click', e => {
                 if(typeof updateDetailsPanel === 'function') updateDetailsPanel();
             }
             showEditor();
+        })
+        .catch((err) => {
+            if (err.message !== 'キャンセルしました') {
+                alert(err.message);
+            }
         });
 });
 

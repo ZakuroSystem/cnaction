@@ -834,9 +834,15 @@ if (deleteButton) {
 
 function saveStageConfig() {
     readForm(false);
+    const password = document.getElementById('stagePassword')?.value?.trim() || '';
+    if (!password) {
+        return Promise.reject(new Error('保存には編集パスワードが必須です'));
+    }
     const payload = {
         key: currentKey,
         name: document.getElementById('stageName').value || 'new_stage',
+        password,
+        locked: Boolean(document.getElementById('stageLocked')?.checked),
         config
     };
     return fetch('/api/stages', {
