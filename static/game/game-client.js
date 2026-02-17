@@ -70,6 +70,9 @@ export class GameClient {
     this.initialSpawn = null;
     this.deliverySuccessSoundPath = '/static/se/haizen_ok.mp3';
     this.deliveryFailureSoundPath = '/static/se/haizen_ng.mp3';
+    this.defaultSuccessParticleNumber = 1;
+    this.defaultFailureParticleNumber = 2;
+    this.activeParticleEl = null;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -199,6 +202,10 @@ export class GameClient {
       this.mobileControls.destroy();
       this.mobileControls = null;
     }
+    if (this.activeParticleEl?.parentNode) {
+      this.activeParticleEl.parentNode.removeChild(this.activeParticleEl);
+    }
+    this.activeParticleEl = null;
     const dispose = this.onDispose;
     this.onDispose = () => {};
     dispose();
@@ -865,13 +872,74 @@ export class GameClient {
     }, 800);
   }
 
+
+  getDeliveryParticleNumber(success) {
+    const effects = this.serverState?.config?.particleEffects;
+    const configured = success ? Number(effects?.successNumber) : Number(effects?.failureNumber);
+    if (Number.isFinite(configured) && configured > 0) {
+      return Math.floor(configured);
+    }
+    return success ? this.defaultSuccessParticleNumber : this.defaultFailureParticleNumber;
+  }
+
+  showDeliveryParticle(success) {
+    const number = this.getDeliveryParticleNumber(success);
+    const target = this.container || document.body;
+    if (!target) {
+      return;
+    }
+    if (this.activeParticleEl?.parentNode) {
+      this.activeParticleEl.parentNode.removeChild(this.activeParticleEl);
+      this.activeParticleEl = null;
+    }
+
+    const img = document.createElement('img');
+    img.alt = success ? 'delivery success particle' : 'delivery failure particle';
+    img.src = `/static/particles/particle_${number}.gif?v=${Date.now()}`;
+    img.style.position = 'absolute';
+    img.style.left = '50%';
+    img.style.top = '50%';
+    img.style.transform = 'translate(-50%, -50%)';
+    img.style.pointerEvents = 'none';
+    img.style.zIndex = '30';
+    img.style.maxWidth = '260px';
+    img.style.maxHeight = '260px';
+
+    const currentPosition = window.getComputedStyle(target).position;
+    if (currentPosition === 'static') {
+      target.style.position = 'relative';
+    }
+
+    img.onerror = () => {
+      if (img.parentNode) {
+        img.parentNode.removeChild(img);
+      }
+      if (this.activeParticleEl === img) {
+        this.activeParticleEl = null;
+      }
+    };
+
+    target.appendChild(img);
+    this.activeParticleEl = img;
+    window.setTimeout(() => {
+      if (img.parentNode) {
+        img.parentNode.removeChild(img);
+      }
+      if (this.activeParticleEl === img) {
+        this.activeParticleEl = null;
+      }
+    }, 1500);
+  }
+
   handleActionFeedback(payload) {
     const deliveryResult = payload?.deliveryResult;
     if (deliveryResult === 'success') {
+      this.showDeliveryParticle(true);
       this.playDeliverySound(true);
       return;
     }
     if (deliveryResult === 'failure') {
+      this.showDeliveryParticle(false);
       this.playDeliverySound(false);
       return;
     }

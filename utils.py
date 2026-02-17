@@ -653,6 +653,10 @@ def get_default_config() -> dict:
         'bakeDuration': 3.0,
         'cookingRecipes': default_cooking_recipes(),
         'combinationRecipes': default_combination_recipes(),
+        'particleEffects': {
+            'successNumber': 1,
+            'failureNumber': 2,
+        },
     }
 
 # Utility functions

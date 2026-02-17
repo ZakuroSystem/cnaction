@@ -44,6 +44,19 @@ const details = {
 const summaryList = document.getElementById('stageSummary');
 const objectList = document.getElementById('objectList');
 const configError = document.getElementById('configError');
+const particleElements = {
+    successNumber: document.getElementById('particleSuccessNumber'),
+    failureNumber: document.getElementById('particleFailureNumber'),
+    gifFile: document.getElementById('particleGifFile'),
+    gifNumber: document.getElementById('particleGifNumber'),
+    uploadButton: document.getElementById('uploadParticleGif'),
+    renumberFrom: document.getElementById('particleRenumberFrom'),
+    renumberTo: document.getElementById('particleRenumberTo'),
+    renumberButton: document.getElementById('renumberParticleGif'),
+    deleteNumber: document.getElementById('particleDeleteNumber'),
+    deleteButton: document.getElementById('deleteParticleGif'),
+    list: document.getElementById('particleList')
+};
 
 const typeLabels = {
     action: '作業台',
@@ -129,6 +142,17 @@ function ensureTexture(key) {
 
 let editor = null;
 
+function ensureParticleConfig() {
+    if (!config || typeof config !== 'object') return;
+    if (!config.particleEffects || typeof config.particleEffects !== 'object') {
+        config.particleEffects = {};
+    }
+    const success = Number(config.particleEffects.successNumber);
+    const failure = Number(config.particleEffects.failureNumber);
+    config.particleEffects.successNumber = Number.isFinite(success) && success > 0 ? Math.floor(success) : 1;
+    config.particleEffects.failureNumber = Number.isFinite(failure) && failure > 0 ? Math.floor(failure) : 2;
+}
+
 function normaliseZone(zone, defaults = {}) {
     if (!zone) zone = {};
     zone.x = Number(zone.x);
@@ -172,6 +196,7 @@ function ensureStageStructure() {
     if (config.deliveryZone) {
         config.deliveryZone = normaliseZone(config.deliveryZone, { width: 140, height: 140, x: 640, y: 320 });
     }
+    ensureParticleConfig();
     return config;
 }
 
@@ -183,6 +208,8 @@ function fillForm() {
     if (orderTimeInput) orderTimeInput.value = config.orderTimeLimit;
     const penaltyInput = document.getElementById('wrongPenalty');
     if (penaltyInput) penaltyInput.value = config.wrongOrderPenalty;
+    if (particleElements.successNumber) particleElements.successNumber.value = config.particleEffects?.successNumber || 1;
+    if (particleElements.failureNumber) particleElements.failureNumber.value = config.particleEffects?.failureNumber || 2;
 }
 
 function updateAdvancedEditor() {
@@ -315,6 +342,15 @@ function readForm(updateUi = true) {
     if (orderTimeInput) config.orderTimeLimit = Number(orderTimeInput.value) || config.orderTimeLimit;
     const penaltyInput = document.getElementById('wrongPenalty');
     if (penaltyInput) config.wrongOrderPenalty = Number(penaltyInput.value) || 0;
+    ensureParticleConfig();
+    if (particleElements.successNumber) {
+        const value = Number(particleElements.successNumber.value);
+        if (Number.isFinite(value) && value > 0) config.particleEffects.successNumber = Math.floor(value);
+    }
+    if (particleElements.failureNumber) {
+        const value = Number(particleElements.failureNumber.value);
+        if (Number.isFinite(value) && value > 0) config.particleEffects.failureNumber = Math.floor(value);
+    }
     draggables.forEach(d => {
         switch (d.type) {
             case 'action':
@@ -796,27 +832,25 @@ if (deleteButton) {
     };
 }
 
-document.getElementById('saveStage')?.addEventListener('click', () => {
+function saveStageConfig() {
     readForm(false);
     const payload = {
         key: currentKey,
         name: document.getElementById('stageName').value || 'new_stage',
         config
     };
-    fetch('/api/stages', {
+    return fetch('/api/stages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     }).then(r => r.json()).then(data => {
-        if (data.ok) {
-            currentKey = data.key;
-            alert('保存しました');
-            showList();
-        } else {
-            alert('保存失敗:' + data.msg);
+        if (!data.ok) {
+            throw new Error(data.msg || '保存失敗');
         }
+        currentKey = data.key;
+        return data;
     });
-});
+}
 
 function syncApplyRoom() {
     const stageName = document.getElementById('stageName');
@@ -825,16 +859,22 @@ function syncApplyRoom() {
     applyRoom.value = stageName.value.trim();
 }
 
-document.getElementById('applyStage')?.addEventListener('click', () => {
-    readForm(false);
+document.getElementById('saveApplyStage')?.addEventListener('click', () => {
     syncApplyRoom();
     const room = document.getElementById('applyRoom').value;
     if (!room) {
         alert('ステージ名を入力してください');
         return;
     }
-    socket.emit('update_config', { room, config });
-    alert('適用しました');
+    saveStageConfig()
+        .then(() => {
+            socket.emit('update_config', { room, config });
+            alert('適用＆保存しました');
+            showList();
+        })
+        .catch((error) => {
+            alert(`適用＆保存に失敗しました: ${error.message}`);
+        });
 });
 
 ['x', 'y', 'w', 'h', 'action', 'display', 'nextFood'].forEach(key => {
@@ -842,6 +882,98 @@ document.getElementById('applyStage')?.addEventListener('click', () => {
         details[key].addEventListener('input', applyDetails);
     }
 });
+
+
+function renderParticleList(items) {
+    if (!particleElements.list) return;
+    if (!Array.isArray(items) || items.length === 0) {
+        particleElements.list.textContent = '登録済みGIFはありません。';
+        return;
+    }
+    particleElements.list.textContent = items
+        .map((item) => `#${item.number}: ${item.name}`)
+        .join(' / ');
+}
+
+function loadParticleList() {
+    return fetch('/api/particles')
+        .then((r) => r.json())
+        .then((data) => {
+            renderParticleList(data.items || []);
+            return data.items || [];
+        })
+        .catch(() => {
+            renderParticleList([]);
+        });
+}
+
+function bindParticleControls() {
+    particleElements.uploadButton?.addEventListener('click', () => {
+        const file = particleElements.gifFile?.files?.[0];
+        const number = Number(particleElements.gifNumber?.value);
+        if (!file) {
+            alert('GIFファイルを選択してください');
+            return;
+        }
+        if (!file.name.toLowerCase().endsWith('.gif')) {
+            alert('GIFのみアップロード可能です');
+            return;
+        }
+        if (!Number.isFinite(number) || number <= 0) {
+            alert('番号は1以上で入力してください');
+            return;
+        }
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('number', String(Math.floor(number)));
+        fetch('/api/particles', { method: 'POST', body: formData })
+            .then((r) => r.json())
+            .then((data) => {
+                if (!data.ok) throw new Error(data.msg || 'アップロード失敗');
+                alert('GIFをアップロードしました');
+                if (particleElements.gifFile) particleElements.gifFile.value = '';
+                return loadParticleList();
+            })
+            .catch((error) => alert(error.message));
+    });
+
+    particleElements.renumberButton?.addEventListener('click', () => {
+        const from = Number(particleElements.renumberFrom?.value);
+        const to = Number(particleElements.renumberTo?.value);
+        if (!Number.isFinite(from) || !Number.isFinite(to) || from <= 0 || to <= 0) {
+            alert('変更元・変更先は1以上の整数で入力してください');
+            return;
+        }
+        fetch('/api/particles/reindex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: Math.floor(from), to: Math.floor(to) })
+        })
+            .then((r) => r.json())
+            .then((data) => {
+                if (!data.ok) throw new Error(data.msg || '番号再設定失敗');
+                alert('番号を再設定しました');
+                return loadParticleList();
+            })
+            .catch((error) => alert(error.message));
+    });
+
+    particleElements.deleteButton?.addEventListener('click', () => {
+        const number = Number(particleElements.deleteNumber?.value);
+        if (!Number.isFinite(number) || number <= 0) {
+            alert('削除番号は1以上で入力してください');
+            return;
+        }
+        fetch(`/api/particles/${Math.floor(number)}`, { method: 'DELETE' })
+            .then((r) => r.json())
+            .then((data) => {
+                if (!data.ok) throw new Error(data.msg || '削除失敗');
+                alert('GIFを削除しました');
+                return loadParticleList();
+            })
+            .catch((error) => alert(error.message));
+    });
+}
 
 function initEditor() {
     editor = document.getElementById('configEditor');
@@ -878,6 +1010,8 @@ function syncConfigJson(toEditor = true) {
 
 window.addEventListener('DOMContentLoaded', () => {
     initEditor();
+    bindParticleControls();
     refreshUi();
     syncApplyRoom();
+    loadParticleList();
 });

@@ -57,6 +57,79 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
     def api_default_config():
         return jsonify(game.get_default_room_config())
 
+    @blueprint.route("/api/particles", methods=["GET"])
+    def api_particles_list():
+        static_root = Path(current_app.static_folder or "static")
+        particle_dir = static_root / "particles"
+        particle_dir.mkdir(parents=True, exist_ok=True)
+        items = []
+        for path in sorted(particle_dir.glob("particle_*.gif")):
+            stem = path.stem
+            try:
+                number = int(stem.split("_", 1)[1])
+            except (ValueError, IndexError):
+                continue
+            items.append({"number": number, "name": path.name, "path": f"/static/particles/{path.name}"})
+        items.sort(key=lambda item: item["number"])
+        return jsonify(items=items)
+
+    @blueprint.route("/api/particles", methods=["POST"])
+    def api_particles_upload():
+        file = request.files.get("file")
+        if not file:
+            return jsonify(ok=False, msg="GIFファイルが必要です"), 400
+        ext = Path(file.filename or "").suffix.lower()
+        if ext != ".gif":
+            return jsonify(ok=False, msg="GIFのみアップロード可能です"), 400
+        try:
+            number = int(request.form.get("number", "0"))
+        except ValueError:
+            return jsonify(ok=False, msg="番号は整数で指定してください"), 400
+        if number <= 0:
+            return jsonify(ok=False, msg="番号は1以上で指定してください"), 400
+
+        static_root = Path(current_app.static_folder or "static")
+        particle_dir = static_root / "particles"
+        particle_dir.mkdir(parents=True, exist_ok=True)
+        destination = particle_dir / f"particle_{number}.gif"
+        file.save(destination)
+        return jsonify(ok=True, item={"number": number, "name": destination.name, "path": f"/static/particles/{destination.name}"})
+
+    @blueprint.route("/api/particles/reindex", methods=["POST"])
+    def api_particles_reindex():
+        payload = request.get_json(force=True) or {}
+        try:
+            src_number = int(payload.get("from"))
+            dst_number = int(payload.get("to"))
+        except (TypeError, ValueError):
+            return jsonify(ok=False, msg="番号は整数で指定してください"), 400
+        if src_number <= 0 or dst_number <= 0:
+            return jsonify(ok=False, msg="番号は1以上で指定してください"), 400
+
+        static_root = Path(current_app.static_folder or "static")
+        particle_dir = static_root / "particles"
+        particle_dir.mkdir(parents=True, exist_ok=True)
+        src = particle_dir / f"particle_{src_number}.gif"
+        dst = particle_dir / f"particle_{dst_number}.gif"
+        if not src.exists():
+            return jsonify(ok=False, msg="変更元GIFが見つかりません"), 404
+        if dst.exists():
+            dst.unlink()
+        src.rename(dst)
+        return jsonify(ok=True)
+
+    @blueprint.route("/api/particles/<int:number>", methods=["DELETE"])
+    def api_particles_delete(number: int):
+        if number <= 0:
+            return jsonify(ok=False, msg="番号は1以上で指定してください"), 400
+        static_root = Path(current_app.static_folder or "static")
+        particle_dir = static_root / "particles"
+        target = particle_dir / f"particle_{number}.gif"
+        if not target.exists():
+            return jsonify(ok=False, msg="対象GIFが見つかりません"), 404
+        target.unlink()
+        return jsonify(ok=True)
+
     @blueprint.route("/upload_image", methods=["POST"])
     def upload_image():
         if request.form.get("password", "") != settings.upload_password:
