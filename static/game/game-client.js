@@ -803,9 +803,7 @@ export class GameClient {
     return audio;
   }
 
-  playDeliverySound(success) {
-    const src = success ? this.deliverySuccessSoundPath : this.deliveryFailureSoundPath;
-    const audio = this.createSound(src);
+  playAudioSafely(audio) {
     if (!audio) {
       return;
     }
@@ -818,6 +816,53 @@ export class GameClient {
     } catch (error) {
       // ignore autoplay errors
     }
+  }
+
+  playDeliverySound(success) {
+    const src = success ? this.deliverySuccessSoundPath : this.deliveryFailureSoundPath;
+    const audio = this.createSound(src);
+    if (!audio) {
+      return;
+    }
+
+    let settled = false;
+    const cleanup = () => {
+      audio.removeEventListener('canplaythrough', onReady);
+      audio.removeEventListener('loadeddata', onReady);
+      audio.removeEventListener('error', onError);
+    };
+    const onReady = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      this.playAudioSafely(audio);
+    };
+    const onError = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+    };
+
+    audio.addEventListener('canplaythrough', onReady, { once: true });
+    audio.addEventListener('loadeddata', onReady, { once: true });
+    audio.addEventListener('error', onError, { once: true });
+
+    try {
+      audio.load();
+    } catch (error) {
+      onError();
+      return;
+    }
+
+    setTimeout(() => {
+      if (!settled) {
+        onReady();
+      }
+    }, 800);
   }
 
   handleActionFeedback(payload) {
