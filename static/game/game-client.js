@@ -587,6 +587,7 @@ export class GameClient {
 
   update(dt) {
     this.flushPendingUi(dt);
+    this.maybePullState(dt);
 
     if (!this.serverState || !window.playerId) return;
     const me = this.serverState.players?.[window.playerId];
@@ -648,7 +649,6 @@ export class GameClient {
 
     this.clampLocalPosition();
     this.maybeSendMove(movement.moving);
-    this.maybePullState(dt);
 
     if (this.isHost && this.localSimulator) {
       this.localSimulator.update(dt);
