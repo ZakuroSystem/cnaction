@@ -213,7 +213,7 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='scripts/stage_manager.js') }}"></script>
-<script src="{{ url_for('static', filename='scripts/stage_editor.js') }}"></script>
+<script src="{{ url_for('static', filename='scripts/stage_manager.js') }}?v={{ stage_manager_version }}"></script>
+<script src="{{ url_for('static', filename='scripts/stage_editor.js') }}?v={{ stage_editor_version }}"></script>
 </body>
 </html>

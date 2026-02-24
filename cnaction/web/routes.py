@@ -273,7 +273,14 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
 
     @blueprint.route("/editor")
     def editor():
-        return render_template("editor.html")
+        static_folder = Path(current_app.static_folder or "static")
+        stage_editor_version = _static_mtime(static_folder, "scripts/stage_editor.js")
+        stage_manager_version = _static_mtime(static_folder, "scripts/stage_manager.js")
+        return render_template(
+            "editor.html",
+            stage_editor_version=stage_editor_version,
+            stage_manager_version=stage_manager_version,
+        )
 
     @blueprint.route("/admin")
     def admin():
