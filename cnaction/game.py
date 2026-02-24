@@ -45,6 +45,12 @@ from .values import coerce_float, coerce_int, normalize_uuid_list
 rooms: Dict[str, RoomState] = {}
 dirty_flags: Dict[str, bool] = {}
 sid_to_player: Dict[str, Tuple[str, str]] = {}
+persistent_rooms: set[str] = set()
+room_records: Dict[str, list[dict]] = {}
+room_persistence_enabled: bool = True
+cluster_node_id: str = "Server"
+room_sync_timestamps: Dict[str, float] = {}
+room_sync_sources: Dict[str, str] = {}
 
 _socketio: Optional[SocketIO] = None
 _dirty_lock = Lock()
@@ -56,6 +62,63 @@ _default_room_config: Optional[dict] = None
 _default_room_lock = Lock()
 _room_store: Optional[RoomStore] = None
 
+
+def set_room_persistence_enabled(enabled: bool) -> None:
+    global room_persistence_enabled
+    room_persistence_enabled = bool(enabled)
+
+
+def is_room_persistent(room: str) -> bool:
+    return bool(room in persistent_rooms)
+
+
+def set_room_persistent(room: str, persistent: bool = True) -> bool:
+    if not room:
+        return False
+    if persistent:
+        persistent_rooms.add(room)
+        room_records.setdefault(room, [])
+    else:
+        persistent_rooms.discard(room)
+    return True
+
+
+def add_room_record(room: str, score: int) -> None:
+    if not room:
+        return
+    records = room_records.setdefault(room, [])
+    records.append({'score': int(score), 'timestamp': time.time()})
+    records.sort(key=lambda row: int(row.get('score', 0)), reverse=True)
+    if len(records) > 50:
+        del records[50:]
+
+
+def get_room_records(room: str) -> list[dict]:
+    records = room_records.get(room, [])
+    if not isinstance(records, list):
+        return []
+    return [dict(row) for row in records if isinstance(row, dict)]
+
+
+
+
+def set_cluster_node_id(node_id: str) -> None:
+    global cluster_node_id
+    cluster_node_id = (str(node_id or "Server").strip() or "Server")[:64]
+
+
+def touch_room_sync(room: str, *, source: str | None = None, updated_at: float | None = None) -> None:
+    if not room:
+        return
+    room_sync_timestamps[room] = float(updated_at if updated_at is not None else time.time())
+    room_sync_sources[room] = str(source or cluster_node_id)
+
+
+def get_room_sync_info(room: str) -> dict:
+    return {
+        'updatedAt': float(room_sync_timestamps.get(room, 0.0) or 0.0),
+        'source': str(room_sync_sources.get(room, cluster_node_id) or cluster_node_id),
+    }
 
 def init(socketio: SocketIO) -> None:
     """Configure the game state module with the active SocketIO instance."""
@@ -180,6 +243,25 @@ def _serialize_player(player: Player, *, include_position: bool = True) -> dict:
 
 def serialize_room_state(rs: RoomState, *, include_positions: bool = True) -> dict:
     with _room_lock(rs):
+        cfg = rs.config if isinstance(rs.config, dict) else {}
+        action_blocks = []
+        for index, zone in enumerate(cfg.get('actionZones') or []):
+            if not isinstance(zone, dict):
+                continue
+            cooking = zone.get('cooking') if isinstance(zone.get('cooking'), dict) else None
+            action_blocks.append(
+                {
+                    'key': f"action_{index}",
+                    'index': index,
+                    'x': zone.get('x'),
+                    'y': zone.get('y'),
+                    'width': zone.get('width'),
+                    'height': zone.get('height'),
+                    'action': zone.get('action'),
+                    'occupied': bool(zone.get('occupied')),
+                    'cooking': dict(cooking) if cooking else None,
+                }
+            )
         return {
             'players': {
                 pid: _serialize_player(p, include_position=include_positions)
@@ -190,7 +272,8 @@ def serialize_room_state(rs: RoomState, *, include_positions: bool = True) -> di
             'score': rs.score,
             'timer': rs.timer,
             'gameOver': rs.gameOver,
-            'config': rs.config,
+            'config': cfg,
+            'actionBlocks': action_blocks,
             'nextItemId': rs.nextItemId,
             'resetScheduled': rs.resetScheduled,
             'hostId': rs.hostId,
@@ -294,6 +377,7 @@ def _emit_room_state(room: str) -> bool:
 
 
 def mark_dirty(room: str, immediate: bool = False):
+    touch_room_sync(room)
     with _dirty_lock:
         dirty_flags[room] = True
     if immediate:
@@ -1207,6 +1291,7 @@ def start_cooking_action(
             }
             task = {
                 'id': uuid.uuid4().hex,
+                'action': action['action'],
                 'progress': 0.0,
                 'duration': duration_val,
                 'texture': texture_key,
@@ -1379,6 +1464,7 @@ def initialize_room(room: str, config: dict = None):
 
     rs = RoomState()
     assign_room_config(rs, cfg)
+    touch_room_sync(room)
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.orders = [build_order(cfg, rs.runtime) for _ in range(3)]
     rs.clientManaged = False
@@ -1550,6 +1636,12 @@ def run_cooking_task(room: str, zone: dict, task: dict):
                         settlement['settledAt'] = now
                         settlement.pop('lastError', None)
                         settlement.pop('lastFailure', None)
+                        if task.get('action') == 'bake':
+                            _require_socketio().emit(
+                                'action_feedback',
+                                {'soundEffect': 'grilled'},
+                                room=room,
+                            )
                         dirty = True
 
                 if result_item_id is not None and not burned:

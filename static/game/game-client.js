@@ -37,6 +37,7 @@ export class GameClient {
       actionMessageEl: document.getElementById('action-message'),
     });
     this.matchStatusEl = document.getElementById('match-status');
+    this.backToTopButtonEl = document.getElementById('back-to-top-button');
 
     this.serverState = null;
     this.localPosition = null;
@@ -62,14 +63,29 @@ export class GameClient {
     this.lastAckedAction = 0;
     this.pendingActions = [];
     this.predictionSimulator = null;
-    this.moveSendIntervalMs = 1000 / 15;
+    this.moveSendIntervalMs = 100;
     this.remotePositions = new Map();
     this.remoteSmoothingWindowMs = 400;
-    this.positionRequestInterval = 0.2;
-    this.positionRequestTimer = 0;
+    this.statePullInterval = 0.1;
+    this.statePullTimer = 0;
     this.initialSpawn = null;
-    this.deliverySuccessSound = this.createSound('/static/se/haizen_ok.mp3');
-    this.deliveryFailureSound = this.createSound('/static/se/haizen_ng.mp3');
+    this.hasPlayedEndSound = false;
+    this.deliverySuccessSoundPath = '/static/se/haizen_ok.mp3';
+    this.deliveryFailureSoundPath = '/static/se/haizen_ng.mp3';
+    this.endSoundPath = '/static/se/end.mp3';
+    this.soundEffects = {
+      dismatch: '/static/se/dismatch.mp3',
+      grill: '/static/se/grill.mp3',
+      cut: '/static/se/cut.mp3',
+      grilled: '/static/se/grilled.mp3',
+      marge: '/static/se/marge.mp3',
+      pick: '/static/se/pick.mp3',
+    };
+    this.defaultSuccessParticleNumber = 1;
+    this.defaultFailureParticleNumber = 2;
+    this.activeParticleEl = null;
+    this.activeCookingLoopAudios = new Map();
+    this.hasPlayedEndSound = false;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -102,12 +118,16 @@ export class GameClient {
     if (this.remotePositions) {
       this.remotePositions.clear();
     }
-    this.positionRequestTimer = 0;
+    this.statePullTimer = 0;
     this.initialSpawn = null;
     this.setMatchStatus(window.autoMatch, 'マッチング中...');
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
     document.addEventListener('visibilitychange', this.boundVisibilityChange);
+    if (this.backToTopButtonEl) {
+      this.backToTopButtonEl.onclick = () => this.returnToTop();
+      this.backToTopButtonEl.classList.add('hidden');
+    }
 
     this.socket.off('state_update', this.boundStateUpdate);
     this.socket.off('force_disconnect', this.boundForceDisconnect);
@@ -192,12 +212,22 @@ export class GameClient {
     if (this.remotePositions) {
       this.remotePositions.clear();
     }
-    this.positionRequestTimer = 0;
+    this.statePullTimer = 0;
     this.initialSpawn = null;
     this.setMatchStatus(false);
     if (this.mobileControls) {
       this.mobileControls.destroy();
       this.mobileControls = null;
+    }
+    if (this.activeParticleEl?.parentNode) {
+      this.activeParticleEl.parentNode.removeChild(this.activeParticleEl);
+    }
+    this.activeParticleEl = null;
+    this.stopAllCookingLoopSounds();
+    this.hasPlayedEndSound = false;
+    if (this.backToTopButtonEl) {
+      this.backToTopButtonEl.classList.add('hidden');
+      this.backToTopButtonEl.onclick = null;
     }
     const dispose = this.onDispose;
     this.onDispose = () => {};
@@ -270,6 +300,7 @@ export class GameClient {
       this.lastServerTime = serverTime;
     }
     const cloned = this.cloneState(state);
+    this.updateRemotePositions(cloned?.players || {});
     this.applyRemotePositionsToState(cloned);
     if (
       !this.isHost &&
@@ -287,6 +318,7 @@ export class GameClient {
     }
     this.serverState = cloned;
     this.applyRemotePositionsToState(this.serverState);
+    this.syncCookingLoopSounds(this.serverState);
     this.applyPendingActionPredictions();
     this.reconcileLocalPrediction(this.serverState, Number.isFinite(ackSeq) ? ackSeq : null);
     if (!this.lastSentPosition && this.localPosition) {
@@ -305,6 +337,15 @@ export class GameClient {
       this.queueUiFromLocal();
     } else {
       this.setPendingUiState(this.serverState);
+    }
+
+    if (this.serverState?.gameOver) {
+      this.showBackToTopButton();
+      if (!this.hasPlayedEndSound) {
+        this.hasPlayedEndSound = true;
+        this.playAudioSafely(this.createSound(this.endSoundPath));
+      }
+      this.stopAllCookingLoopSounds();
     }
 
     if (this.remoteMoveSequences && this.remoteMoveSequences.size) {
@@ -428,12 +469,8 @@ export class GameClient {
       this.pendingMoves = [];
     }
     if (!this.localPosition) {
-      let baseX = toFiniteNumber(me?.x);
-      let baseY = toFiniteNumber(me?.y);
-      if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
-        baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
-        baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
-      }
+      const baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : NaN;
+      const baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : NaN;
       if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
         this.localPosition = { x: baseX, y: baseY };
         this.lastSentPosition = { x: baseX, y: baseY };
@@ -457,7 +494,101 @@ export class GameClient {
     }
   }
 
+
+  showBackToTopButton() {
+    if (!this.backToTopButtonEl) {
+      return;
+    }
+    this.backToTopButtonEl.classList.remove('hidden');
+  }
+
+  returnToTop() {
+    this.destroy();
+    const overlay = document.getElementById('start-overlay');
+    const gameContainer = document.getElementById('game-container');
+    const ui = document.getElementById('ui');
+    if (overlay) {
+      overlay.style.display = 'block';
+    }
+    if (gameContainer) {
+      gameContainer.style.display = 'none';
+    }
+    if (ui) {
+      ui.style.display = 'none';
+    }
+  }
+
+  syncCookingLoopSounds(state) {
+    const actionBlocks = Array.isArray(state?.actionBlocks) ? state.actionBlocks : [];
+    const activeActions = new Set();
+    actionBlocks.forEach((block) => {
+      const cooking = block?.cooking;
+      if (!cooking || typeof cooking !== 'object') {
+        return;
+      }
+      const progress = Number(cooking.progress);
+      const settlementStatus = typeof cooking?.settlement?.status === 'string'
+        ? cooking.settlement.status
+        : '';
+      const isCookingActive =
+        !Number.isFinite(progress) ||
+        progress < 1 ||
+        (settlementStatus !== 'settled' && settlementStatus !== 'captured' && settlementStatus !== 'voided');
+      if (!isCookingActive) {
+        return;
+      }
+      const action = cooking.action;
+      if (action === 'cut') {
+        activeActions.add('cut');
+      }
+      if (action === 'bake') {
+        activeActions.add('grill');
+      }
+    });
+
+    ['cut', 'grill'].forEach((name) => {
+      const audio = this.activeCookingLoopAudios.get(name);
+      if (activeActions.has(name)) {
+        if (audio) {
+          return;
+        }
+        const nextAudio = this.createSound(this.soundEffects[name]);
+        if (!nextAudio) {
+          return;
+        }
+        nextAudio.loop = true;
+        this.activeCookingLoopAudios.set(name, nextAudio);
+        this.playAudioSafely(nextAudio);
+      } else if (audio) {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch (error) {
+          // ignore
+        }
+        this.activeCookingLoopAudios.delete(name);
+      }
+    });
+  }
+
+  stopAllCookingLoopSounds() {
+    if (!(this.activeCookingLoopAudios instanceof Map)) {
+      this.activeCookingLoopAudios = new Map();
+      return;
+    }
+    for (const audio of this.activeCookingLoopAudios.values()) {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch (error) {
+        // ignore
+      }
+    }
+    this.activeCookingLoopAudios.clear();
+  }
+
   handleForceDisconnect() {
+    this.stopAllCookingLoopSounds();
     alert('サーバーから切断されました。再度接続してください。');
     this.destroy();
     document.getElementById('start-overlay').style.display = 'block';
@@ -583,18 +714,15 @@ export class GameClient {
 
   update(dt) {
     this.flushPendingUi(dt);
+    this.maybePullState(dt);
 
     if (!this.serverState || !window.playerId) return;
     const me = this.serverState.players?.[window.playerId];
     if (!me) return;
 
     if (!this.localPosition) {
-      let baseX = toFiniteNumber(me?.x);
-      let baseY = toFiniteNumber(me?.y);
-      if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
-        baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : baseX;
-        baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : baseY;
-      }
+      const baseX = Number.isFinite(this.initialSpawn?.x) ? this.initialSpawn.x : NaN;
+      const baseY = Number.isFinite(this.initialSpawn?.y) ? this.initialSpawn.y : NaN;
       if (Number.isFinite(baseX) && Number.isFinite(baseY)) {
         this.localPosition = { x: baseX, y: baseY };
       }
@@ -648,7 +776,6 @@ export class GameClient {
 
     this.clampLocalPosition();
     this.maybeSendMove(movement.moving);
-    this.maybeRequestRemotePositions(dt);
 
     if (this.isHost && this.localSimulator) {
       this.localSimulator.update(dt);
@@ -796,13 +923,14 @@ export class GameClient {
     if (!src) {
       return null;
     }
-    const audio = new Audio(src);
+    const separator = src.includes('?') ? '&' : '?';
+    const cacheBustedSrc = `${src}${separator}v=${Date.now()}`;
+    const audio = new Audio(cacheBustedSrc);
     audio.preload = 'auto';
     return audio;
   }
 
-  playDeliverySound(success) {
-    const audio = success ? this.deliverySuccessSound : this.deliveryFailureSound;
+  playAudioSafely(audio) {
     if (!audio) {
       return;
     }
@@ -817,13 +945,138 @@ export class GameClient {
     }
   }
 
+  playDeliverySound(success) {
+    const src = success ? this.deliverySuccessSoundPath : this.deliveryFailureSoundPath;
+    const audio = this.createSound(src);
+    if (!audio) {
+      return;
+    }
+
+    let settled = false;
+    const cleanup = () => {
+      audio.removeEventListener('canplaythrough', onReady);
+      audio.removeEventListener('loadeddata', onReady);
+      audio.removeEventListener('error', onError);
+    };
+    const onReady = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      this.playAudioSafely(audio);
+    };
+    const onError = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+    };
+
+    audio.addEventListener('canplaythrough', onReady, { once: true });
+    audio.addEventListener('loadeddata', onReady, { once: true });
+    audio.addEventListener('error', onError, { once: true });
+
+    try {
+      audio.load();
+    } catch (error) {
+      onError();
+      return;
+    }
+
+    setTimeout(() => {
+      if (!settled) {
+        onReady();
+      }
+    }, 800);
+  }
+
+  playSoundEffect(name) {
+    if (!name || !this.soundEffects) {
+      return;
+    }
+    const src = this.soundEffects[name];
+    if (!src) {
+      return;
+    }
+    const audio = this.createSound(src);
+    this.playAudioSafely(audio);
+  }
+
+
+  getDeliveryParticleNumber(success) {
+    const effects = this.serverState?.config?.particleEffects;
+    const configured = success ? Number(effects?.successNumber) : Number(effects?.failureNumber);
+    if (Number.isFinite(configured) && configured > 0) {
+      return Math.floor(configured);
+    }
+    return success ? this.defaultSuccessParticleNumber : this.defaultFailureParticleNumber;
+  }
+
+  showDeliveryParticle(success) {
+    const number = this.getDeliveryParticleNumber(success);
+    const target = this.container || document.body;
+    if (!target) {
+      return;
+    }
+    if (this.activeParticleEl?.parentNode) {
+      this.activeParticleEl.parentNode.removeChild(this.activeParticleEl);
+      this.activeParticleEl = null;
+    }
+
+    const img = document.createElement('img');
+    img.alt = success ? 'delivery success particle' : 'delivery failure particle';
+    img.src = `/static/particles/particle_${number}.gif?v=${Date.now()}`;
+    img.style.position = 'absolute';
+    img.style.left = '50%';
+    img.style.top = '50%';
+    img.style.transform = 'translate(-50%, -50%)';
+    img.style.pointerEvents = 'none';
+    img.style.zIndex = '30';
+    img.style.maxWidth = '260px';
+    img.style.maxHeight = '260px';
+
+    const currentPosition = window.getComputedStyle(target).position;
+    if (currentPosition === 'static') {
+      target.style.position = 'relative';
+    }
+
+    img.onerror = () => {
+      if (img.parentNode) {
+        img.parentNode.removeChild(img);
+      }
+      if (this.activeParticleEl === img) {
+        this.activeParticleEl = null;
+      }
+    };
+
+    target.appendChild(img);
+    this.activeParticleEl = img;
+    window.setTimeout(() => {
+      if (img.parentNode) {
+        img.parentNode.removeChild(img);
+      }
+      if (this.activeParticleEl === img) {
+        this.activeParticleEl = null;
+      }
+    }, 1500);
+  }
+
   handleActionFeedback(payload) {
+    const soundEffect = typeof payload?.soundEffect === 'string' ? payload.soundEffect.trim() : '';
+    if (soundEffect) {
+      this.playSoundEffect(soundEffect);
+    }
+
     const deliveryResult = payload?.deliveryResult;
     if (deliveryResult === 'success') {
+      this.showDeliveryParticle(true);
       this.playDeliverySound(true);
       return;
     }
     if (deliveryResult === 'failure') {
+      this.showDeliveryParticle(false);
       this.playDeliverySound(false);
       return;
     }
@@ -910,47 +1163,35 @@ export class GameClient {
     this.moveSequence += 1;
     const seq = this.moveSequence;
     this.recordPendingMove(seq, this.localPosition.x, this.localPosition.y);
+    const carrying = this.serverState?.players?.[window.playerId]?.currentItem;
     this.socket.emit('move', {
       room: window.roomName,
       playerId: window.playerId,
       x: this.localPosition.x,
       y: this.localPosition.y,
       seq,
+      carryingType: carrying?.type || null,
+      carryingState: carrying?.state || null,
     });
   }
 
-  maybeRequestRemotePositions(dt) {
-    if (!window.roomName || !this.serverState) {
+  maybePullState(dt) {
+    if (!window.roomName) {
       return;
     }
-    const players = this.serverState.players || {};
-    const targets = Object.keys(players).filter((pid) => pid && pid !== window.playerId);
-    if (!targets.length) {
-      this.positionRequestTimer = 0;
+    this.statePullTimer += dt;
+    if (this.statePullTimer < this.statePullInterval) {
       return;
     }
-    this.positionRequestTimer += dt;
-    if (this.positionRequestTimer < this.positionRequestInterval) {
-      return;
-    }
-    this.positionRequestTimer = 0;
-    this.socket.emit(
-      'request_positions',
-      { room: window.roomName, players: targets },
-      (response) => this.handlePositionResponse(response)
-    );
+    this.statePullTimer = 0;
+    this.socket.emit('request_state', { room: window.roomName }, (response) => this.handleStateResponse(response));
   }
 
-  handlePositionResponse(response) {
-    if (!response || typeof response !== 'object') {
+  handleStateResponse(response) {
+    if (!response || typeof response !== 'object' || !response.state) {
       return;
     }
-    const positions = response.players;
-    this.updateRemotePositions(positions);
-    const serverTime = Number(response?.serverTime);
-    if (Number.isFinite(serverTime) && serverTime > this.lastServerTime) {
-      this.lastServerTime = serverTime;
-    }
+    this.handleStateUpdate(response.state);
   }
 
   updateRemotePositions(positions) {
@@ -962,7 +1203,6 @@ export class GameClient {
     }
     const now = performance.now();
     const windowMs = Math.max(0, Number(this.remoteSmoothingWindowMs) || 0);
-    const windowStart = windowMs > 0 ? now - windowMs : -Infinity;
     Object.entries(positions).forEach(([pid, value]) => {
       if (!pid || pid === window.playerId) {
         return;
@@ -972,58 +1212,17 @@ export class GameClient {
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return;
       }
-      const existing = this.remotePositions.get(pid) || { samples: [] };
-      existing.samples = Array.isArray(existing.samples) ? existing.samples : [];
-      existing.samples.push({ x, y, timestamp: now });
-      existing.samples = existing.samples
-        .filter((sample) => Number.isFinite(sample?.timestamp) && sample.timestamp >= windowStart)
-        .sort((a, b) => a.timestamp - b.timestamp);
-      if (!existing.samples.length) {
-        existing.samples.push({ x, y, timestamp: now });
-      }
-      const samples = existing.samples;
-      const effectiveWindowStart = Math.max(windowStart, samples[0]?.timestamp ?? windowStart);
-      let durationSum = 0;
-      let weightedX = 0;
-      let weightedY = 0;
-      for (let i = 0; i < samples.length; i += 1) {
-        const sample = samples[i];
-        if (!sample) {
-          continue;
-        }
-        const start = Math.max(sample.timestamp, effectiveWindowStart);
-        const nextTimestamp =
-          i < samples.length - 1
-            ? Math.max(sample.timestamp, samples[i + 1].timestamp)
-            : now;
-        const end = Math.max(start, Math.min(nextTimestamp, now));
-        const duration = end - start;
-        if (duration <= 0) {
-          continue;
-        }
-        durationSum += duration;
-        weightedX += sample.x * duration;
-        weightedY += sample.y * duration;
-      }
-      if (durationSum > 0) {
-        existing.x = weightedX / durationSum;
-        existing.y = weightedY / durationSum;
-      } else {
-        const lastSample = samples[samples.length - 1];
-        existing.x = Number.isFinite(lastSample?.x) ? lastSample.x : x;
-        existing.y = Number.isFinite(lastSample?.y) ? lastSample.y : y;
-      }
-      existing.timestamp = now;
-      this.remotePositions.set(pid, existing);
-      if (this.serverState?.players?.[pid]) {
-        const player = this.serverState.players[pid];
-        player.x = existing.x;
-        player.y = existing.y;
-        if (player.currentItem) {
-          player.currentItem.x = existing.x;
-          player.currentItem.y = existing.y;
-        }
-      }
+      const current = this.remotePositions.get(pid);
+      const fromX = Number.isFinite(current?.x) ? current.x : x;
+      const fromY = Number.isFinite(current?.y) ? current.y : y;
+      this.remotePositions.set(pid, {
+        x,
+        y,
+        fromX,
+        fromY,
+        startTime: now,
+        endTime: now + windowMs,
+      });
     });
     if (this.serverState?.players) {
       const active = new Set(Object.keys(this.serverState.players));
@@ -1039,6 +1238,7 @@ export class GameClient {
     if (!state || !state.players || !this.remotePositions) {
       return;
     }
+    const now = performance.now();
     for (const [pid, info] of this.remotePositions.entries()) {
       if (pid === window.playerId) {
         continue;
@@ -1047,10 +1247,21 @@ export class GameClient {
       if (!player) {
         continue;
       }
-      const x = toFiniteNumber(info?.x);
-      const y = toFiniteNumber(info?.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const fromX = toFiniteNumber(info?.fromX);
+      const fromY = toFiniteNumber(info?.fromY);
+      const toX = toFiniteNumber(info?.x);
+      const toY = toFiniteNumber(info?.y);
+      const startTime = toFiniteNumber(info?.startTime);
+      const endTime = toFiniteNumber(info?.endTime);
+      if (!Number.isFinite(toX) || !Number.isFinite(toY)) {
         continue;
+      }
+      let x = toX;
+      let y = toY;
+      if (Number.isFinite(fromX) && Number.isFinite(fromY) && Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
+        const t = Math.max(0, Math.min(1, (now - startTime) / (endTime - startTime)));
+        x = fromX + (toX - fromX) * t;
+        y = fromY + (toY - fromY) * t;
       }
       player.x = x;
       player.y = y;

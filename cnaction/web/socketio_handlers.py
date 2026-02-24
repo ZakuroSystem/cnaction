@@ -18,6 +18,12 @@ from ..settings import AppSettings
 def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> None:
     default_room = settings.default_room
     auto_match_max_players = settings.auto_match_max_players
+    room_persistence_enabled = bool(settings.room_persistence_enabled)
+
+    def emit_sound_effect(effect: str) -> None:
+        if not effect:
+            return
+        socketio.emit("action_feedback", {"soundEffect": effect}, room=request.sid)
 
     @socketio.on("join")
     def on_join(data: dict[str, Any] | None):
@@ -101,6 +107,9 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
     def on_update_config(data: dict[str, Any]):
         room = data.get("room")
         cfg = data.get("config")
+        if room_persistence_enabled and game.is_room_persistent(room):
+            socketio.emit("action_feedback", {"message": "このルームは永続化済みのため編集できません。"}, room=request.sid)
+            return
         if room not in game.rooms:
             game.initialize_room(room, cfg)
             if room == default_room:
@@ -231,9 +240,11 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
 
         if player.currentItem is None:
             if game.try_pickup_world_item(rs, room, player, x, y):
+                emit_sound_effect("pick")
                 finalize(True)
                 return
             if game.try_spawn_from_generator(rs, player, x, y):
+                emit_sound_effect("pick")
                 finalize(True)
                 return
             finalize(position_updated, immediate=False)
@@ -244,6 +255,17 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         if action_info and game.start_cooking_action(room, rs, player, x, y, item, action_info):
             finalize(True)
             return
+
+        if isinstance(rs.config, dict):
+            for zone in rs.config.get("actionZones") or []:
+                if not isinstance(zone, dict):
+                    continue
+                if not game.in_zone(x, y, zone):
+                    continue
+                zone_action = zone.get("action")
+                if zone_action in ("cut", "bake"):
+                    emit_sound_effect("dismatch")
+                    break
 
         delivered, success = game.try_deliver_item(rs, player, x, y)
         if delivered:
@@ -260,12 +282,14 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
 
         combined, feedback_message = game.try_stack_combination(rs, room, player, item)
         if feedback_message:
-            socketio.emit('action_feedback', {'message': feedback_message}, room=request.sid)
+            socketio.emit('action_feedback', {'message': feedback_message, 'soundEffect': 'dismatch'}, room=request.sid)
         if combined:
+            emit_sound_effect("marge")
             finalize(True)
             return
 
         game.drop_item_to_world(rs, room, player, item, x, y)
+        emit_sound_effect("pick")
         finalize(True)
 
     @socketio.on("client_state")
@@ -286,6 +310,15 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
             rs.hostId = pid
         game.apply_client_state(room, snapshot)
         game.mark_dirty(room)
+
+    @socketio.on("request_state")
+    def on_request_state(data: dict[str, Any]):
+        room = data.get("room")
+        if room not in game.rooms:
+            return {"state": None, "serverTime": time.time()}
+        state = game.serialize_room_state(game.rooms[room], include_positions=True)
+        state["serverTime"] = time.time()
+        return {"state": state, "serverTime": state["serverTime"]}
 
     @socketio.on("request_positions")
     def on_request_positions(data: dict[str, Any]):

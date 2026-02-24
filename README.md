@@ -78,6 +78,17 @@ Launch the development server via the module entrypoint:
 python app.py
 ```
 
+### Windows one-click setup/start
+
+If Python 3.10+ is already installed, you can use:
+
+```bat
+setup_and_run.bat
+```
+
+- First run: creates `.venv` and installs `requirements.txt`.
+- Later runs: starts the server directly using the existing virtualenv.
+
 Environment variables can be used to override runtime behaviour:
 
 - `PORT` – HTTP port (defaults to `8071`).
@@ -86,6 +97,14 @@ Environment variables can be used to override runtime behaviour:
 - `CNACTION_STAGE_DIR` – directory for persisted stage configurations.
 - `CNACTION_UPLOAD_PASSWORD` – password for the asset upload endpoint.
 - `CNACTION_ALLOWED_EXTENSIONS` – comma-separated list of permitted upload extensions.
+- `CNACTION_CLUSTER_SYNC_ENABLED` – set to `1` to enable multi-server sync.
+- `CNACTION_CLUSTER_SYNC_KEY` – shared random secret key (recommended 160 characters).
+- `CNACTION_CLUSTER_SYNC_PEERS` – comma-separated peer base URLs (e.g. `http://host1:8071,http://host2:8071`).
+- `CNACTION_CLUSTER_SYNC_INTERVAL_SEC` – sync polling interval in seconds (default `5`).
+- `CNACTION_CLUSTER_NODE_ID` – server identifier used for conflict branch naming (e.g. `Server_A`).
+
+
+When two servers edited the same room independently during disconnect, incoming conflicting room configs are preserved as branch rooms named like `room_Server_A_1`.
 
 ## Testing
 

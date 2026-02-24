@@ -315,4 +315,18 @@ def sanitize_config(cfg: dict) -> dict:
     cfg['movingObstacles'] = []
     cfg.setdefault('transferObjects', [])
 
+    particle_effects = cfg.get('particleEffects') if isinstance(cfg.get('particleEffects'), dict) else {}
+    try:
+        success_number = int(particle_effects.get('successNumber', 1))
+    except (TypeError, ValueError):
+        success_number = 1
+    try:
+        failure_number = int(particle_effects.get('failureNumber', 2))
+    except (TypeError, ValueError):
+        failure_number = 2
+    cfg['particleEffects'] = {
+        'successNumber': max(1, success_number),
+        'failureNumber': max(1, failure_number),
+    }
+
     return cfg
