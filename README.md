@@ -78,6 +78,17 @@ Launch the development server via the module entrypoint:
 python app.py
 ```
 
+### Windows one-click setup/start
+
+If Python 3.10+ is already installed, you can use:
+
+```bat
+setup_and_run.bat
+```
+
+- First run: creates `.venv` and installs `requirements.txt`.
+- Later runs: starts the server directly using the existing virtualenv.
+
 Environment variables can be used to override runtime behaviour:
 
 - `PORT` – HTTP port (defaults to `8071`).

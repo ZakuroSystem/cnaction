@@ -64,7 +64,24 @@
           <h3>操作方法</h3>
           <ul>
             <li>移動: 矢印キー / WASD</li>
-            <li>アクション: スペースキー</li>
+            <li>配膳・アイテムを拾う・置く・調理: スペースキー</li>
+          </ul>
+        </div>
+        <div class="game-guide__section">
+          <h3>登場するアクションブロック</h3>
+          <ul class="guide-item-list">
+            <li><img src="/static/new_items/まな板が乗っているカウンター.png" alt="調理ブロック" width="48" height="48"> 調理ブロック: 食材を切る・焼くなどの調理を行います。</li>
+            <li><img src="/static/new_items/配膳用カウンター.png" alt="配膳ブロック" width="48" height="48"> 配膳ブロック: 完成した料理を提出してスコアを獲得します。</li>
+            <li><img src="/static/new_items/食材が出てくるかご.png" alt="供給ブロック" width="48" height="48"> 供給ブロック: 新しい食材を受け取れます。</li>
+          </ul>
+        </div>
+        <div class="game-guide__section">
+          <h3>登場する主な食材</h3>
+          <ul class="guide-item-list">
+            <li><img src="/static/new_items/burger_buns.png" alt="バンズ" width="48" height="48"> バンズ: 焼いてトーストしてから使います。</li>
+            <li><img src="/static/new_items/beef_patty.png" alt="パティ" width="48" height="48"> パティ: 焼いてからバンズに重ねます。</li>
+            <li><img src="/static/new_items/lettuce.png" alt="レタス" width="48" height="48"> レタス: 刻んでから重ねます。</li>
+            <li><img src="/static/new_items/TMT.png" alt="トマト" width="48" height="48"> トマト: スライスしてから重ねます。</li>
           </ul>
         </div>
         <div class="game-guide__section">
@@ -72,6 +89,9 @@
           <ul>
             <li>オーダーに表示された料理を順番に作ります。</li>
             <li>素材を拾って調理し、完成した料理を提出してスコアを稼ぎます。</li>
+            <li>バンズを焼いて、パティを焼き、トーストしたバンズに焼いたパティを重ねてからレタスやトマトを重ねます。</li>
+            <li>焼く調理は焼きすぎると消し炭になって消えるので、タイミングよく回収しましょう。</li>
+            <li>調理の順番は左の材料一覧に書いてある順番どおりに進めると一番簡単にうまく作れます。</li>
             <li>制限時間内にできるだけ多くのオーダーをこなしましょう。</li>
           </ul>
         </div>
@@ -114,6 +134,13 @@
       role="status"
       aria-live="polite"
     ></div>
+    <button
+      type="button"
+      id="back-to-top-button"
+      class="exit-button hidden"
+    >
+      トップに戻る
+    </button>
     <div
       id="action-message"
       class="action-message hidden"

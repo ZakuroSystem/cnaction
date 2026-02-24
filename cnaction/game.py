@@ -45,6 +45,9 @@ from .values import coerce_float, coerce_int, normalize_uuid_list
 rooms: Dict[str, RoomState] = {}
 dirty_flags: Dict[str, bool] = {}
 sid_to_player: Dict[str, Tuple[str, str]] = {}
+persistent_rooms: set[str] = set()
+room_records: Dict[str, list[dict]] = {}
+room_persistence_enabled: bool = True
 
 _socketio: Optional[SocketIO] = None
 _dirty_lock = Lock()
@@ -55,6 +58,43 @@ _auto_match_sequence = itertools.count(1)
 _default_room_config: Optional[dict] = None
 _default_room_lock = Lock()
 _room_store: Optional[RoomStore] = None
+
+
+def set_room_persistence_enabled(enabled: bool) -> None:
+    global room_persistence_enabled
+    room_persistence_enabled = bool(enabled)
+
+
+def is_room_persistent(room: str) -> bool:
+    return bool(room in persistent_rooms)
+
+
+def set_room_persistent(room: str, persistent: bool = True) -> bool:
+    if not room:
+        return False
+    if persistent:
+        persistent_rooms.add(room)
+        room_records.setdefault(room, [])
+    else:
+        persistent_rooms.discard(room)
+    return True
+
+
+def add_room_record(room: str, score: int) -> None:
+    if not room:
+        return
+    records = room_records.setdefault(room, [])
+    records.append({'score': int(score), 'timestamp': time.time()})
+    records.sort(key=lambda row: int(row.get('score', 0)), reverse=True)
+    if len(records) > 50:
+        del records[50:]
+
+
+def get_room_records(room: str) -> list[dict]:
+    records = room_records.get(room, [])
+    if not isinstance(records, list):
+        return []
+    return [dict(row) for row in records if isinstance(row, dict)]
 
 
 def init(socketio: SocketIO) -> None:
@@ -180,6 +220,25 @@ def _serialize_player(player: Player, *, include_position: bool = True) -> dict:
 
 def serialize_room_state(rs: RoomState, *, include_positions: bool = True) -> dict:
     with _room_lock(rs):
+        cfg = rs.config if isinstance(rs.config, dict) else {}
+        action_blocks = []
+        for index, zone in enumerate(cfg.get('actionZones') or []):
+            if not isinstance(zone, dict):
+                continue
+            cooking = zone.get('cooking') if isinstance(zone.get('cooking'), dict) else None
+            action_blocks.append(
+                {
+                    'key': f"action_{index}",
+                    'index': index,
+                    'x': zone.get('x'),
+                    'y': zone.get('y'),
+                    'width': zone.get('width'),
+                    'height': zone.get('height'),
+                    'action': zone.get('action'),
+                    'occupied': bool(zone.get('occupied')),
+                    'cooking': dict(cooking) if cooking else None,
+                }
+            )
         return {
             'players': {
                 pid: _serialize_player(p, include_position=include_positions)
@@ -190,7 +249,8 @@ def serialize_room_state(rs: RoomState, *, include_positions: bool = True) -> di
             'score': rs.score,
             'timer': rs.timer,
             'gameOver': rs.gameOver,
-            'config': rs.config,
+            'config': cfg,
+            'actionBlocks': action_blocks,
             'nextItemId': rs.nextItemId,
             'resetScheduled': rs.resetScheduled,
             'hostId': rs.hostId,
@@ -1207,6 +1267,7 @@ def start_cooking_action(
             }
             task = {
                 'id': uuid.uuid4().hex,
+                'action': action['action'],
                 'progress': 0.0,
                 'duration': duration_val,
                 'texture': texture_key,
@@ -1550,6 +1611,12 @@ def run_cooking_task(room: str, zone: dict, task: dict):
                         settlement['settledAt'] = now
                         settlement.pop('lastError', None)
                         settlement.pop('lastFailure', None)
+                        if task.get('action') == 'bake':
+                            _require_socketio().emit(
+                                'action_feedback',
+                                {'soundEffect': 'grilled'},
+                                room=room,
+                            )
                         dirty = True
 
                 if result_item_id is not None and not burned:
