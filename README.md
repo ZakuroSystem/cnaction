@@ -101,6 +101,10 @@ Environment variables can be used to override runtime behaviour:
 - `CNACTION_CLUSTER_SYNC_KEY` – shared random secret key (recommended 160 characters).
 - `CNACTION_CLUSTER_SYNC_PEERS` – comma-separated peer base URLs (e.g. `http://host1:8071,http://host2:8071`).
 - `CNACTION_CLUSTER_SYNC_INTERVAL_SEC` – sync polling interval in seconds (default `5`).
+- `CNACTION_CLUSTER_NODE_ID` – server identifier used for conflict branch naming (e.g. `Server_A`).
+
+
+When two servers edited the same room independently during disconnect, incoming conflicting room configs are preserved as branch rooms named like `room_Server_A_1`.
 
 ## Testing
 

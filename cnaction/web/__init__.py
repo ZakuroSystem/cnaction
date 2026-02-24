@@ -57,6 +57,7 @@ def create_app(settings: AppSettings | None = None) -> Tuple[Flask, SocketIO]:
 
     game.init(socketio)
     game.set_room_persistence_enabled(settings.room_persistence_enabled)
+    game.set_cluster_node_id(settings.cluster_node_id)
     game.set_room_store(room_store)
     for snapshot in room_store.load().values():
         game.initialize_room(snapshot.name, snapshot.config)

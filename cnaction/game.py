@@ -48,6 +48,9 @@ sid_to_player: Dict[str, Tuple[str, str]] = {}
 persistent_rooms: set[str] = set()
 room_records: Dict[str, list[dict]] = {}
 room_persistence_enabled: bool = True
+cluster_node_id: str = "Server"
+room_sync_timestamps: Dict[str, float] = {}
+room_sync_sources: Dict[str, str] = {}
 
 _socketio: Optional[SocketIO] = None
 _dirty_lock = Lock()
@@ -96,6 +99,26 @@ def get_room_records(room: str) -> list[dict]:
         return []
     return [dict(row) for row in records if isinstance(row, dict)]
 
+
+
+
+def set_cluster_node_id(node_id: str) -> None:
+    global cluster_node_id
+    cluster_node_id = (str(node_id or "Server").strip() or "Server")[:64]
+
+
+def touch_room_sync(room: str, *, source: str | None = None, updated_at: float | None = None) -> None:
+    if not room:
+        return
+    room_sync_timestamps[room] = float(updated_at if updated_at is not None else time.time())
+    room_sync_sources[room] = str(source or cluster_node_id)
+
+
+def get_room_sync_info(room: str) -> dict:
+    return {
+        'updatedAt': float(room_sync_timestamps.get(room, 0.0) or 0.0),
+        'source': str(room_sync_sources.get(room, cluster_node_id) or cluster_node_id),
+    }
 
 def init(socketio: SocketIO) -> None:
     """Configure the game state module with the active SocketIO instance."""
@@ -354,6 +377,7 @@ def _emit_room_state(room: str) -> bool:
 
 
 def mark_dirty(room: str, immediate: bool = False):
+    touch_room_sync(room)
     with _dirty_lock:
         dirty_flags[room] = True
     if immediate:
@@ -1440,6 +1464,7 @@ def initialize_room(room: str, config: dict = None):
 
     rs = RoomState()
     assign_room_config(rs, cfg)
+    touch_room_sync(room)
     rs.timer = cfg.get('gameTime', rs.timer)
     rs.orders = [build_order(cfg, rs.runtime) for _ in range(3)]
     rs.clientManaged = False

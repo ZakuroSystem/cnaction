@@ -15,10 +15,23 @@ from .stage_store import StageStore
 
 def build_cluster_state(stage_store: StageStore) -> dict[str, Any]:
     rooms: dict[str, dict] = {}
+    room_states: dict[str, dict] = {}
+
     for room, rs in game.rooms.items():
         cfg = rs.config if isinstance(rs.config, dict) else None
-        if isinstance(cfg, dict):
-            rooms[room] = copy.deepcopy(cfg)
+        if not isinstance(cfg, dict):
+            continue
+        sync = game.get_room_sync_info(room)
+        rooms[room] = {
+            "config": copy.deepcopy(cfg),
+            "updatedAt": float(sync.get("updatedAt") or 0.0),
+            "source": str(sync.get("source") or "Server"),
+        }
+        room_states[room] = {
+            "state": game.serialize_room_state(rs, include_positions=True),
+            "updatedAt": float(sync.get("updatedAt") or 0.0),
+            "source": str(sync.get("source") or "Server"),
+        }
 
     stages: dict[str, dict] = {}
     for summary in stage_store.list():
@@ -29,10 +42,22 @@ def build_cluster_state(stage_store: StageStore) -> dict[str, Any]:
     return {
         "generatedAt": time.time(),
         "rooms": rooms,
+        "roomStates": room_states,
         "persistentRooms": sorted(game.persistent_rooms),
         "roomRecords": copy.deepcopy(game.room_records),
         "stages": stages,
     }
+
+
+def _next_branch_name(base: str, source: str) -> str:
+    safe_source = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in str(source or "Server"))
+    safe_source = safe_source[:32] or "Server"
+    idx = 1
+    while True:
+        candidate = f"{base}_{safe_source}_{idx}"
+        if candidate not in game.rooms:
+            return candidate
+        idx += 1
 
 
 def merge_cluster_state(payload: dict[str, Any], stage_store: StageStore, settings: AppSettings) -> dict[str, int]:
@@ -42,14 +67,63 @@ def merge_cluster_state(payload: dict[str, Any], stage_store: StageStore, settin
 
     rooms = payload.get("rooms")
     if isinstance(rooms, dict):
-        for room, cfg in rooms.items():
-            if not isinstance(room, str) or not isinstance(cfg, dict):
+        for room, wrapper in rooms.items():
+            if not isinstance(room, str) or not isinstance(wrapper, dict):
                 continue
+            cfg = wrapper.get("config") if isinstance(wrapper.get("config"), dict) else None
+            if not isinstance(cfg, dict):
+                continue
+
+            incoming_ts = float(wrapper.get("updatedAt") or 0.0)
+            incoming_source = str(wrapper.get("source") or "Server")
+            local_sync = game.get_room_sync_info(room)
+            local_ts = float(local_sync.get("updatedAt") or 0.0)
+            local_source = str(local_sync.get("source") or "Server")
+
             if room in game.rooms:
+                local_cfg = game.rooms[room].config if isinstance(game.rooms[room].config, dict) else {}
+                if local_cfg != cfg and local_source != incoming_source and local_ts > 0 and incoming_ts > 0:
+                    # divergent edits during partition: keep both timelines
+                    branch_name = _next_branch_name(room, incoming_source)
+                    game.initialize_room(branch_name, copy.deepcopy(cfg))
+                    game.touch_room_sync(branch_name, source=incoming_source, updated_at=incoming_ts)
+                    game.mark_dirty(branch_name)
+                    merged["rooms"] += 1
+                    continue
+                if incoming_ts and local_ts and incoming_ts < local_ts:
+                    continue
                 game.assign_room_config(game.rooms[room], copy.deepcopy(cfg))
             else:
                 game.initialize_room(room, copy.deepcopy(cfg))
+
+            game.touch_room_sync(room, source=incoming_source, updated_at=incoming_ts or time.time())
+            game.mark_dirty(room)
             merged["rooms"] += 1
+
+    room_states = payload.get("roomStates")
+    if isinstance(room_states, dict):
+        for room, wrapper in room_states.items():
+            if not isinstance(room, str) or not isinstance(wrapper, dict):
+                continue
+            state = wrapper.get("state") if isinstance(wrapper.get("state"), dict) else None
+            if not isinstance(state, dict):
+                continue
+
+            incoming_ts = float(wrapper.get("updatedAt") or 0.0)
+            incoming_source = str(wrapper.get("source") or "Server")
+            local_ts = float(game.get_room_sync_info(room).get("updatedAt") or 0.0)
+            if incoming_ts and local_ts and incoming_ts < local_ts:
+                continue
+
+            if room not in game.rooms:
+                cfg = state.get("config") if isinstance(state.get("config"), dict) else game.get_default_room_config()
+                game.initialize_room(room, copy.deepcopy(cfg))
+
+            game.apply_client_state(room, state)
+            if room in game.rooms:
+                game.rooms[room].clientManaged = False
+            game.touch_room_sync(room, source=incoming_source, updated_at=incoming_ts or time.time())
+            game.mark_dirty(room)
 
     persistent_rooms = payload.get("persistentRooms")
     if isinstance(persistent_rooms, list):

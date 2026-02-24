@@ -35,6 +35,7 @@ class AppSettings:
     cluster_sync_key: str = ""
     cluster_sync_peers: tuple[str, ...] = ()
     cluster_sync_interval_sec: int = 5
+    cluster_node_id: str = "Server"
 
     @classmethod
     def from_env(
@@ -55,6 +56,7 @@ class AppSettings:
         persistence_enabled_default = cls.__dataclass_fields__["room_persistence_enabled"].default
         cluster_sync_enabled_default = cls.__dataclass_fields__["cluster_sync_enabled"].default
         cluster_sync_interval_default = cls.__dataclass_fields__["cluster_sync_interval_sec"].default
+        cluster_node_id_default = cls.__dataclass_fields__["cluster_node_id"].default
 
         secret_key = values.get("CNACTION_SECRET_KEY", secret_key_default)
         upload_password = values.get("CNACTION_UPLOAD_PASSWORD", upload_password_default)
@@ -93,6 +95,8 @@ class AppSettings:
             cluster_sync_interval_sec = cluster_sync_interval_default
         cluster_sync_interval_sec = max(1, cluster_sync_interval_sec)
 
+        cluster_node_id = (values.get("CNACTION_CLUSTER_NODE_ID") or cluster_node_id_default).strip() or "Server"
+
         def _path(var: str, default: Path) -> Path:
             raw = values.get(var)
             return _resolve_path(Path(raw) if raw else default, base=base)
@@ -125,6 +129,7 @@ class AppSettings:
             cluster_sync_key=cluster_sync_key,
             cluster_sync_peers=cluster_sync_peers,
             cluster_sync_interval_sec=cluster_sync_interval_sec,
+            cluster_node_id=cluster_node_id,
         )
 
 
