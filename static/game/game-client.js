@@ -526,6 +526,17 @@ export class GameClient {
       if (!cooking || typeof cooking !== 'object') {
         return;
       }
+      const progress = Number(cooking.progress);
+      const settlementStatus = typeof cooking?.settlement?.status === 'string'
+        ? cooking.settlement.status
+        : '';
+      const isCookingActive =
+        !Number.isFinite(progress) ||
+        progress < 1 ||
+        (settlementStatus !== 'settled' && settlementStatus !== 'captured' && settlementStatus !== 'voided');
+      if (!isCookingActive) {
+        return;
+      }
       const action = cooking.action;
       if (action === 'cut') {
         activeActions.add('cut');
