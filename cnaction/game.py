@@ -1227,6 +1227,7 @@ def start_cooking_action(
             }
             task = {
                 'id': uuid.uuid4().hex,
+                'action': action['action'],
                 'progress': 0.0,
                 'duration': duration_val,
                 'texture': texture_key,
@@ -1570,6 +1571,12 @@ def run_cooking_task(room: str, zone: dict, task: dict):
                         settlement['settledAt'] = now
                         settlement.pop('lastError', None)
                         settlement.pop('lastFailure', None)
+                        if task.get('action') == 'bake':
+                            _require_socketio().emit(
+                                'action_feedback',
+                                {'soundEffect': 'grilled'},
+                                room=room,
+                            )
                         dirty = True
 
                 if result_item_id is not None and not burned:

@@ -64,12 +64,20 @@ export class GameClient {
     this.predictionSimulator = null;
     this.moveSendIntervalMs = 100;
     this.remotePositions = new Map();
-    this.remoteSmoothingWindowMs = 300;
+    this.remoteSmoothingWindowMs = 400;
     this.statePullInterval = 0.1;
     this.statePullTimer = 0;
     this.initialSpawn = null;
     this.deliverySuccessSoundPath = '/static/se/haizen_ok.mp3';
     this.deliveryFailureSoundPath = '/static/se/haizen_ng.mp3';
+    this.soundEffects = {
+      dismatch: '/static/se/dismatch.mp3',
+      grill: '/static/se/grill.mp3',
+      cut: '/static/se/cut.mp3',
+      grilled: '/static/se/grilled.mp3',
+      marge: '/static/se/marge.mp3',
+      pick: '/static/se/pick.mp3',
+    };
     this.defaultSuccessParticleNumber = 1;
     this.defaultFailureParticleNumber = 2;
     this.activeParticleEl = null;
@@ -865,6 +873,18 @@ export class GameClient {
     }, 800);
   }
 
+  playSoundEffect(name) {
+    if (!name || !this.soundEffects) {
+      return;
+    }
+    const src = this.soundEffects[name];
+    if (!src) {
+      return;
+    }
+    const audio = this.createSound(src);
+    this.playAudioSafely(audio);
+  }
+
 
   getDeliveryParticleNumber(success) {
     const effects = this.serverState?.config?.particleEffects;
@@ -925,6 +945,11 @@ export class GameClient {
   }
 
   handleActionFeedback(payload) {
+    const soundEffect = typeof payload?.soundEffect === 'string' ? payload.soundEffect.trim() : '';
+    if (soundEffect) {
+      this.playSoundEffect(soundEffect);
+    }
+
     const deliveryResult = payload?.deliveryResult;
     if (deliveryResult === 'success') {
       this.showDeliveryParticle(true);

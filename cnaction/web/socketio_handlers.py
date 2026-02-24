@@ -19,6 +19,11 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
     default_room = settings.default_room
     auto_match_max_players = settings.auto_match_max_players
 
+    def emit_sound_effect(effect: str) -> None:
+        if not effect:
+            return
+        socketio.emit("action_feedback", {"soundEffect": effect}, room=request.sid)
+
     @socketio.on("join")
     def on_join(data: dict[str, Any] | None):
         payload = data if isinstance(data, dict) else {}
@@ -231,9 +236,11 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
 
         if player.currentItem is None:
             if game.try_pickup_world_item(rs, room, player, x, y):
+                emit_sound_effect("pick")
                 finalize(True)
                 return
             if game.try_spawn_from_generator(rs, player, x, y):
+                emit_sound_effect("pick")
                 finalize(True)
                 return
             finalize(position_updated, immediate=False)
@@ -242,8 +249,20 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         item = player.currentItem
         action_info = game.resolve_cooking_action(rs, item)
         if action_info and game.start_cooking_action(room, rs, player, x, y, item, action_info):
+            emit_sound_effect("cut" if action_info.get("action") == "cut" else "grill")
             finalize(True)
             return
+
+        if isinstance(rs.config, dict):
+            for zone in rs.config.get("actionZones") or []:
+                if not isinstance(zone, dict):
+                    continue
+                if not game.in_zone(x, y, zone):
+                    continue
+                zone_action = zone.get("action")
+                if zone_action in ("cut", "bake"):
+                    emit_sound_effect("dismatch")
+                    break
 
         delivered, success = game.try_deliver_item(rs, player, x, y)
         if delivered:
@@ -260,12 +279,14 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
 
         combined, feedback_message = game.try_stack_combination(rs, room, player, item)
         if feedback_message:
-            socketio.emit('action_feedback', {'message': feedback_message}, room=request.sid)
+            socketio.emit('action_feedback', {'message': feedback_message, 'soundEffect': 'dismatch'}, room=request.sid)
         if combined:
+            emit_sound_effect("marge")
             finalize(True)
             return
 
         game.drop_item_to_world(rs, room, player, item, x, y)
+        emit_sound_effect("pick")
         finalize(True)
 
     @socketio.on("client_state")
