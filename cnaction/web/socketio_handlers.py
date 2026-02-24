@@ -249,7 +249,6 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
         item = player.currentItem
         action_info = game.resolve_cooking_action(rs, item)
         if action_info and game.start_cooking_action(room, rs, player, x, y, item, action_info):
-            emit_sound_effect("cut" if action_info.get("action") == "cut" else "grill")
             finalize(True)
             return
 

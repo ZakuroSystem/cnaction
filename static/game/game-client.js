@@ -37,6 +37,7 @@ export class GameClient {
       actionMessageEl: document.getElementById('action-message'),
     });
     this.matchStatusEl = document.getElementById('match-status');
+    this.backToTopButtonEl = document.getElementById('back-to-top-button');
 
     this.serverState = null;
     this.localPosition = null;
@@ -68,8 +69,11 @@ export class GameClient {
     this.statePullInterval = 0.1;
     this.statePullTimer = 0;
     this.initialSpawn = null;
+    this.hasPlayedEndSound = false;
+    this.stopAllCookingLoopSounds();
     this.deliverySuccessSoundPath = '/static/se/haizen_ok.mp3';
     this.deliveryFailureSoundPath = '/static/se/haizen_ng.mp3';
+    this.endSoundPath = '/static/se/end.mp3';
     this.soundEffects = {
       dismatch: '/static/se/dismatch.mp3',
       grill: '/static/se/grill.mp3',
@@ -81,6 +85,8 @@ export class GameClient {
     this.defaultSuccessParticleNumber = 1;
     this.defaultFailureParticleNumber = 2;
     this.activeParticleEl = null;
+    this.activeCookingLoopAudios = new Map();
+    this.hasPlayedEndSound = false;
 
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
@@ -119,6 +125,10 @@ export class GameClient {
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
     document.addEventListener('visibilitychange', this.boundVisibilityChange);
+    if (this.backToTopButtonEl) {
+      this.backToTopButtonEl.onclick = () => this.returnToTop();
+      this.backToTopButtonEl.classList.add('hidden');
+    }
 
     this.socket.off('state_update', this.boundStateUpdate);
     this.socket.off('force_disconnect', this.boundForceDisconnect);
@@ -214,6 +224,12 @@ export class GameClient {
       this.activeParticleEl.parentNode.removeChild(this.activeParticleEl);
     }
     this.activeParticleEl = null;
+    this.stopAllCookingLoopSounds();
+    this.hasPlayedEndSound = false;
+    if (this.backToTopButtonEl) {
+      this.backToTopButtonEl.classList.add('hidden');
+      this.backToTopButtonEl.onclick = null;
+    }
     const dispose = this.onDispose;
     this.onDispose = () => {};
     dispose();
@@ -303,6 +319,7 @@ export class GameClient {
     }
     this.serverState = cloned;
     this.applyRemotePositionsToState(this.serverState);
+    this.syncCookingLoopSounds(this.serverState);
     this.applyPendingActionPredictions();
     this.reconcileLocalPrediction(this.serverState, Number.isFinite(ackSeq) ? ackSeq : null);
     if (!this.lastSentPosition && this.localPosition) {
@@ -321,6 +338,15 @@ export class GameClient {
       this.queueUiFromLocal();
     } else {
       this.setPendingUiState(this.serverState);
+    }
+
+    if (this.serverState?.gameOver) {
+      this.showBackToTopButton();
+      if (!this.hasPlayedEndSound) {
+        this.hasPlayedEndSound = true;
+        this.playAudioSafely(this.createSound(this.endSoundPath));
+      }
+      this.stopAllCookingLoopSounds();
     }
 
     if (this.remoteMoveSequences && this.remoteMoveSequences.size) {
@@ -469,7 +495,90 @@ export class GameClient {
     }
   }
 
+
+  showBackToTopButton() {
+    if (!this.backToTopButtonEl) {
+      return;
+    }
+    this.backToTopButtonEl.classList.remove('hidden');
+  }
+
+  returnToTop() {
+    this.destroy();
+    const overlay = document.getElementById('start-overlay');
+    const gameContainer = document.getElementById('game-container');
+    const ui = document.getElementById('ui');
+    if (overlay) {
+      overlay.style.display = 'block';
+    }
+    if (gameContainer) {
+      gameContainer.style.display = 'none';
+    }
+    if (ui) {
+      ui.style.display = 'none';
+    }
+  }
+
+  syncCookingLoopSounds(state) {
+    const actionBlocks = Array.isArray(state?.actionBlocks) ? state.actionBlocks : [];
+    const activeActions = new Set();
+    actionBlocks.forEach((block) => {
+      const cooking = block?.cooking;
+      if (!cooking || typeof cooking !== 'object') {
+        return;
+      }
+      const action = cooking.action;
+      if (action === 'cut') {
+        activeActions.add('cut');
+      }
+      if (action === 'bake') {
+        activeActions.add('grill');
+      }
+    });
+
+    ['cut', 'grill'].forEach((name) => {
+      const audio = this.activeCookingLoopAudios.get(name);
+      if (activeActions.has(name)) {
+        if (audio) {
+          return;
+        }
+        const nextAudio = this.createSound(this.soundEffects[name]);
+        if (!nextAudio) {
+          return;
+        }
+        nextAudio.loop = true;
+        this.activeCookingLoopAudios.set(name, nextAudio);
+        this.playAudioSafely(nextAudio);
+      } else if (audio) {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch (error) {
+          // ignore
+        }
+        this.activeCookingLoopAudios.delete(name);
+      }
+    });
+  }
+
+  stopAllCookingLoopSounds() {
+    if (!(this.activeCookingLoopAudios instanceof Map)) {
+      this.activeCookingLoopAudios = new Map();
+      return;
+    }
+    for (const audio of this.activeCookingLoopAudios.values()) {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch (error) {
+        // ignore
+      }
+    }
+    this.activeCookingLoopAudios.clear();
+  }
+
   handleForceDisconnect() {
+    this.stopAllCookingLoopSounds();
     alert('サーバーから切断されました。再度接続してください。');
     this.destroy();
     document.getElementById('start-overlay').style.display = 'block';

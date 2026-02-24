@@ -22,7 +22,13 @@ def start_game_timer(socketio: SocketIO) -> None:
                     if rs.timer <= 0:
                         rs.gameOver = True
                         game.clear_world_items(rs)
-                update_orders(room, game.rooms)
+                timed_out_orders = update_orders(room, game.rooms)
+                if timed_out_orders > 0:
+                    socketio.emit(
+                        'action_feedback',
+                        {'deliveryResult': 'failure'},
+                        room=room,
+                    )
                 game.mark_dirty(room)
                 if rs.gameOver and not rs.resetScheduled:
                     rs.resetScheduled = True
