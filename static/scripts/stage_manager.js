@@ -153,4 +153,13 @@ function showEditor() {
     StageList();
 }
 
+function showList() {
+    document.getElementById('stage-editor').classList.add('hidden');
+    document.getElementById('stage-list').classList.remove('hidden');
+    StageList();
+}
+
+window.showList = showList;
+window.showEditor = showEditor;
+
 window.addEventListener('DOMContentLoaded', StageList);
