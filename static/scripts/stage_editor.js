@@ -836,15 +836,21 @@ if (deleteButton) {
 
 function saveStageConfig() {
     readForm(false);
+    syncApplyRoom();
+    const room = document.getElementById('applyRoom')?.value?.trim() || '';
+    if (!room) {
+        return Promise.reject(new Error('保存するルームを入力してください'));
+    }
+    const locked = Boolean(document.getElementById('stageLocked')?.checked);
     const password = document.getElementById('stagePassword')?.value?.trim() || '';
-    if (!password) {
-        return Promise.reject(new Error('保存には編集パスワードが必須です'));
+    if (locked && !password) {
+        return Promise.reject(new Error('ロックする場合は編集パスワードが必須です'));
     }
     const payload = {
         key: currentKey,
-        name: document.getElementById('stageName').value || 'new_stage',
+        name: room,
         password,
-        locked: Boolean(document.getElementById('stageLocked')?.checked),
+        locked,
         config
     };
     return fetch('/api/stages', {

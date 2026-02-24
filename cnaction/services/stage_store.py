@@ -46,8 +46,11 @@ class StageStore:
     def save(self, key: str, name: str, config: dict, *, password: str, locked: bool = False) -> None:
         if not isinstance(config, dict):
             raise ValueError("Stage config must be a mapping")
-        if not isinstance(password, str) or not password.strip():
-            raise ValueError("Stage password is required")
+        if not isinstance(password, str):
+            password = ""
+        password = password.strip()
+        if locked and not password:
+            raise ValueError("Stage password is required when locked")
 
         normalized_name = str(name or key).strip()
         for path in self.directory.glob("*.json"):
@@ -68,7 +71,7 @@ class StageStore:
                 "name": normalized_name,
                 "updated": int(time.time()),
                 "locked": bool(locked),
-                "password": password.strip(),
+                "password": password,
             },
             "config": config,
         }

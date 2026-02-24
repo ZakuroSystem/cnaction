@@ -89,17 +89,21 @@ document.getElementById('stageTable').addEventListener('click', e => {
         })
         .then(data => {
             currentKey = editKey;
-            config = data.config;
-            document.getElementById('stageName').value = data.meta.name;
+            const meta = (data && typeof data.meta === 'object' && data.meta) ? data.meta : {};
+            const stageName = String(meta.name || editKey || 'new_stage');
+            const loadedConfig = (data && typeof data.config === 'object' && data.config)
+                ? data.config
+                : (data && typeof data === 'object' ? data : {});
+            config = loadedConfig;
             const pwInput = document.getElementById('stagePassword');
-            if (pwInput) pwInput.value = data.meta.password || '';
+            if (pwInput) pwInput.value = meta.password || '';
             const lockInput = document.getElementById('stageLocked');
-            if (lockInput) lockInput.checked = Boolean(data.meta.locked);
+            if (lockInput) lockInput.checked = Boolean(meta.locked);
             if (typeof setApplyRoomEditable === 'function') {
-                setApplyRoomEditable(false, data.meta.name || '');
+                setApplyRoomEditable(false, stageName);
             } else {
                 const applyRoom = document.getElementById('applyRoom');
-                if (applyRoom) applyRoom.value = data.meta.name || '';
+                if (applyRoom) applyRoom.value = stageName;
             }
             if (typeof ensureStageConfig === 'function') ensureStageConfig();
             if (typeof refreshStageEditor === 'function') {
