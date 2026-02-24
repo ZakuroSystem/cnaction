@@ -17,11 +17,14 @@ def start_game_timer(socketio: SocketIO) -> None:
                 rs = game.rooms[room]
                 if rs.clientManaged:
                     continue
+                was_game_over = bool(rs.gameOver)
                 if rs.timer > 0:
                     rs.timer -= 1
                     if rs.timer <= 0:
                         rs.gameOver = True
                         game.clear_world_items(rs)
+                if not was_game_over and rs.gameOver and game.room_persistence_enabled and game.is_room_persistent(room):
+                    game.add_room_record(room, rs.score)
                 timed_out_orders = update_orders(room, game.rooms)
                 if timed_out_orders > 0:
                     socketio.emit(

@@ -18,6 +18,7 @@ from ..settings import AppSettings
 def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> None:
     default_room = settings.default_room
     auto_match_max_players = settings.auto_match_max_players
+    room_persistence_enabled = bool(settings.room_persistence_enabled)
 
     def emit_sound_effect(effect: str) -> None:
         if not effect:
@@ -106,6 +107,9 @@ def register_socketio_handlers(socketio: SocketIO, settings: AppSettings) -> Non
     def on_update_config(data: dict[str, Any]):
         room = data.get("room")
         cfg = data.get("config")
+        if room_persistence_enabled and game.is_room_persistent(room):
+            socketio.emit("action_feedback", {"message": "このルームは永続化済みのため編集できません。"}, room=request.sid)
+            return
         if room not in game.rooms:
             game.initialize_room(room, cfg)
             if room == default_room:

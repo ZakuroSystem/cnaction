@@ -195,12 +195,19 @@
             </details>
 
             <div class="card mb-3">
-                <div class="card-body d-flex flex-column flex-md-row gap-2">
+                <div class="card-body d-flex flex-column gap-2">
                     <div class="d-flex align-items-center gap-2 flex-fill">
                         <label class="form-label mb-0 flex-grow-1">保存するルーム
                             <input type="text" id="applyRoom" class="form-control"></label>
                         <button id="saveApplyStage" class="btn btn-success">適用＆保存</button>
                     </div>
+                    <div class="form-check" id="persistRoomWrap" title="ルームを確定し、編集を禁止し、ランキングボード対応にします">
+                        <input class="form-check-input" type="checkbox" id="persistRoomToggle">
+                        <label class="form-check-label" for="persistRoomToggle">ルームを永続化する</label>
+                    </div>
+                    <div class="small text-muted" id="persistRoomHint">ルームを確定し、編集を禁止し、ランキングボード対応にします</div>
+                    <button id="showRoomRecords" class="btn btn-outline-primary">対戦記録ボードを見る</button>
+                    <div id="roomRecordsView" class="small text-muted"></div>
                     <button id="backList" class="btn btn-outline-secondary flex-fill">一覧に戻る</button>
                 </div>
             </div>

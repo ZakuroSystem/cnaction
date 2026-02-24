@@ -30,6 +30,7 @@ class AppSettings:
     allowed_upload_extensions: Set[str] = field(default_factory=lambda: set(DEFAULT_ALLOWED_EXTENSIONS))
     default_room: str = "room1"
     auto_match_max_players: int = 4
+    room_persistence_enabled: bool = True
 
     @classmethod
     def from_env(
@@ -47,6 +48,7 @@ class AppSettings:
         upload_password_default = cls.__dataclass_fields__["upload_password"].default
         default_room_default = cls.__dataclass_fields__["default_room"].default
         auto_match_default = cls.__dataclass_fields__["auto_match_max_players"].default
+        persistence_enabled_default = cls.__dataclass_fields__["room_persistence_enabled"].default
 
         secret_key = values.get("CNACTION_SECRET_KEY", secret_key_default)
         upload_password = values.get("CNACTION_UPLOAD_PASSWORD", upload_password_default)
@@ -59,6 +61,12 @@ class AppSettings:
                 auto_match_max_players = auto_match_default
         else:
             auto_match_max_players = auto_match_default
+
+        persistence_enabled_raw = values.get("CNACTION_ROOM_PERSISTENCE_ENABLED")
+        if persistence_enabled_raw is None:
+            room_persistence_enabled = persistence_enabled_default
+        else:
+            room_persistence_enabled = persistence_enabled_raw.strip().lower() not in {"0", "false", "off", "no"}
 
         def _path(var: str, default: Path) -> Path:
             raw = values.get(var)
@@ -87,6 +95,7 @@ class AppSettings:
             allowed_upload_extensions=allowed,
             default_room=default_room,
             auto_match_max_players=auto_match_max_players,
+            room_persistence_enabled=room_persistence_enabled,
         )
 
 

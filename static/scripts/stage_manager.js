@@ -10,7 +10,7 @@ async function StageList() {
         tr.innerHTML = `
             <td>${s.name}</td>
             <td>${new Date(s.updated * 1000).toLocaleString()}</td>
-            <td>${s.locked ? "🔒" : ""} <button data-edit="${s.key}">編集</button> <button data-copy="${s.key}">コピー</button></td>`;
+            <td>${s.locked ? "🔒" : ""}${s.persistent ? " 🧷" : ""} <button data-edit="${s.key}">編集</button> <button data-copy="${s.key}">コピー</button> <button data-records="${s.name}">対戦記録</button></td>`;
         tbody.appendChild(tr);
     });
 }
@@ -36,6 +36,17 @@ document.getElementById('createStage').onclick = () => {
 document.getElementById('stageTable').addEventListener('click', e => {
     const editKey = e.target.dataset.edit;
     const copyKey = e.target.dataset.copy;
+    const recordsRoom = e.target.dataset.records;
+
+    if (recordsRoom) {
+        if (typeof loadRoomRecords === "function") {
+            showEditor();
+            const applyRoom = document.getElementById("applyRoom");
+            if (applyRoom) applyRoom.value = recordsRoom;
+            loadRoomRecords(recordsRoom);
+        }
+        return;
+    }
 
     if (copyKey) {
         fetch(`/api/stages/${copyKey}/copy`, { method: 'POST' })

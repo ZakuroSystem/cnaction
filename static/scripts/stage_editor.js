@@ -879,9 +879,54 @@ function setApplyRoomEditable(editable, roomName = '') {
 }
 window.setApplyRoomEditable = setApplyRoomEditable;
 
+
+function isRoomPersistenceEnabled() {
+    return fetch('/api/rooms/persistence_status')
+        .then((r) => r.json())
+        .then((data) => Boolean(data?.enabled))
+        .catch(() => true);
+}
+
+function persistRoom(room) {
+    return fetch(`/api/rooms/${encodeURIComponent(room)}/persist`, { method: 'POST' })
+        .then((r) => r.json())
+        .then((data) => {
+            if (!data.ok) {
+                throw new Error(data.msg || '永続化に失敗しました');
+            }
+            return data;
+        });
+}
+
+function loadRoomRecords(room) {
+    const view = document.getElementById('roomRecordsView');
+    if (!view) return Promise.resolve();
+    return fetch(`/api/rooms/${encodeURIComponent(room)}/records`)
+        .then((r) => r.json())
+        .then((data) => {
+            if (!data.ok) {
+                throw new Error(data.msg || '対戦記録の取得に失敗しました');
+            }
+            const rows = Array.isArray(data.records) ? data.records : [];
+            if (!rows.length) {
+                view.textContent = `${room}: まだ対戦記録はありません。`;
+                return;
+            }
+            view.textContent = rows
+                .slice(0, 10)
+                .map((row, idx) => `#${idx + 1} スコア:${Number(row.score) || 0} (${new Date((Number(row.timestamp) || 0) * 1000).toLocaleString()})`)
+                .join(' / ');
+        })
+        .catch((err) => {
+            view.textContent = err.message;
+        });
+}
+window.loadRoomRecords = loadRoomRecords;
+
 document.getElementById('saveApplyStage')?.addEventListener('click', () => {
     syncApplyRoom();
     const room = document.getElementById('applyRoom').value.trim();
+    const persistToggle = document.getElementById('persistRoomToggle');
     if (!room) {
         alert('ステージ名を入力してください');
         return;
@@ -890,14 +935,38 @@ document.getElementById('saveApplyStage')?.addEventListener('click', () => {
         alert('既存ルームでは保存先のルーム名を変更できません。');
         return;
     }
-    saveStageConfig()
+    const wantsPersist = Boolean(persistToggle?.checked);
+    isRoomPersistenceEnabled()
+        .then((enabled) => {
+            if (!enabled && wantsPersist) {
+                throw new Error('現在、サーバー側でルーム永続化機能はOFFです。');
+            }
+            if (wantsPersist) {
+                const message = '本当に永続化しますか？\nルームを確定し、編集を禁止し、ランキングボード対応にします';
+                if (!window.confirm(message)) {
+                    throw new Error('キャンセルしました');
+                }
+            }
+            return saveStageConfig();
+        })
         .then(() => {
             socket.emit('update_config', { room, config });
+            if (!wantsPersist) {
+                return Promise.resolve();
+            }
+            return persistRoom(room);
+        })
+        .then(() => {
             alert('適用＆保存しました');
+            return loadRoomRecords(room);
+        })
+        .then(() => {
             showList();
         })
         .catch((error) => {
-            alert(`適用＆保存に失敗しました: ${error.message}`);
+            if (error.message !== 'キャンセルしました') {
+                alert(`適用＆保存に失敗しました: ${error.message}`);
+            }
         });
 });
 
@@ -1034,4 +1103,22 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshUi();
     setApplyRoomEditable(true, '');
     loadParticleList();
+});
+
+
+document.getElementById('showRoomRecords')?.addEventListener('click', () => {
+    syncApplyRoom();
+    const room = document.getElementById('applyRoom')?.value?.trim();
+    if (!room) {
+        alert('ルーム名を入力してください。');
+        return;
+    }
+    loadRoomRecords(room);
+});
+
+document.getElementById('persistRoomWrap')?.addEventListener('mouseenter', () => {
+    const hint = document.getElementById('persistRoomHint');
+    if (hint) {
+        hint.textContent = 'ルームを確定し、編集を禁止し、ランキングボード対応にします';
+    }
 });

@@ -70,7 +70,6 @@ export class GameClient {
     this.statePullTimer = 0;
     this.initialSpawn = null;
     this.hasPlayedEndSound = false;
-    this.stopAllCookingLoopSounds();
     this.deliverySuccessSoundPath = '/static/se/haizen_ok.mp3';
     this.deliveryFailureSoundPath = '/static/se/haizen_ng.mp3';
     this.endSoundPath = '/static/se/end.mp3';
