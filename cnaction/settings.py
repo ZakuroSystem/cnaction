@@ -31,6 +31,10 @@ class AppSettings:
     default_room: str = "room1"
     auto_match_max_players: int = 4
     room_persistence_enabled: bool = True
+    cluster_sync_enabled: bool = False
+    cluster_sync_key: str = ""
+    cluster_sync_peers: tuple[str, ...] = ()
+    cluster_sync_interval_sec: int = 5
 
     @classmethod
     def from_env(
@@ -49,6 +53,8 @@ class AppSettings:
         default_room_default = cls.__dataclass_fields__["default_room"].default
         auto_match_default = cls.__dataclass_fields__["auto_match_max_players"].default
         persistence_enabled_default = cls.__dataclass_fields__["room_persistence_enabled"].default
+        cluster_sync_enabled_default = cls.__dataclass_fields__["cluster_sync_enabled"].default
+        cluster_sync_interval_default = cls.__dataclass_fields__["cluster_sync_interval_sec"].default
 
         secret_key = values.get("CNACTION_SECRET_KEY", secret_key_default)
         upload_password = values.get("CNACTION_UPLOAD_PASSWORD", upload_password_default)
@@ -67,6 +73,25 @@ class AppSettings:
             room_persistence_enabled = persistence_enabled_default
         else:
             room_persistence_enabled = persistence_enabled_raw.strip().lower() not in {"0", "false", "off", "no"}
+
+        cluster_sync_enabled_raw = values.get("CNACTION_CLUSTER_SYNC_ENABLED")
+        if cluster_sync_enabled_raw is None:
+            cluster_sync_enabled = cluster_sync_enabled_default
+        else:
+            cluster_sync_enabled = cluster_sync_enabled_raw.strip().lower() not in {"0", "false", "off", "no"}
+
+        cluster_sync_key = (values.get("CNACTION_CLUSTER_SYNC_KEY") or "").strip()
+        cluster_sync_peers_raw = values.get("CNACTION_CLUSTER_SYNC_PEERS", "")
+        cluster_sync_peers = tuple(
+            peer.strip().rstrip("/")
+            for peer in cluster_sync_peers_raw.split(",")
+            if peer.strip()
+        )
+        try:
+            cluster_sync_interval_sec = int(values.get("CNACTION_CLUSTER_SYNC_INTERVAL_SEC", cluster_sync_interval_default))
+        except ValueError:
+            cluster_sync_interval_sec = cluster_sync_interval_default
+        cluster_sync_interval_sec = max(1, cluster_sync_interval_sec)
 
         def _path(var: str, default: Path) -> Path:
             raw = values.get(var)
@@ -96,6 +121,10 @@ class AppSettings:
             default_room=default_room,
             auto_match_max_players=auto_match_max_players,
             room_persistence_enabled=room_persistence_enabled,
+            cluster_sync_enabled=cluster_sync_enabled,
+            cluster_sync_key=cluster_sync_key,
+            cluster_sync_peers=cluster_sync_peers,
+            cluster_sync_interval_sec=cluster_sync_interval_sec,
         )
 
 

@@ -5,9 +5,12 @@ from flask_socketio import SocketIO
 
 from cnaction import game
 from utils import update_orders
+from ..settings import AppSettings
+from ..services.stage_store import StageStore
+from ..services.cluster_sync import fetch_peer_state, merge_cluster_state
 
 
-def start_game_timer(socketio: SocketIO) -> None:
+def start_game_timer(socketio: SocketIO, settings: AppSettings, stage_store: StageStore) -> None:
     """Launch the repeating task that ticks game timers."""
 
     def task() -> None:
@@ -40,6 +43,23 @@ def start_game_timer(socketio: SocketIO) -> None:
                     )
 
     socketio.start_background_task(task)
+
+    def sync_task() -> None:
+        while True:
+            socketio.sleep(max(1, int(settings.cluster_sync_interval_sec)))
+            if not settings.cluster_sync_enabled:
+                continue
+            shared_key = (settings.cluster_sync_key or "").strip()
+            if len(shared_key) < 32:
+                continue
+            peers = [peer for peer in settings.cluster_sync_peers if isinstance(peer, str) and peer.strip()]
+            for peer in peers:
+                state = fetch_peer_state(peer, shared_key)
+                if not isinstance(state, dict):
+                    continue
+                merge_cluster_state(state, stage_store, settings)
+
+    socketio.start_background_task(sync_task)
 
 
 __all__ = ["start_game_timer"]

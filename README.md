@@ -97,6 +97,10 @@ Environment variables can be used to override runtime behaviour:
 - `CNACTION_STAGE_DIR` – directory for persisted stage configurations.
 - `CNACTION_UPLOAD_PASSWORD` – password for the asset upload endpoint.
 - `CNACTION_ALLOWED_EXTENSIONS` – comma-separated list of permitted upload extensions.
+- `CNACTION_CLUSTER_SYNC_ENABLED` – set to `1` to enable multi-server sync.
+- `CNACTION_CLUSTER_SYNC_KEY` – shared random secret key (recommended 160 characters).
+- `CNACTION_CLUSTER_SYNC_PEERS` – comma-separated peer base URLs (e.g. `http://host1:8071,http://host2:8071`).
+- `CNACTION_CLUSTER_SYNC_INTERVAL_SEC` – sync polling interval in seconds (default `5`).
 
 ## Testing
 

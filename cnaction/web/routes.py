@@ -12,6 +12,7 @@ from utils import export_config_response
 
 from ..services.stage_store import StageStore
 from ..services.uploads import UploadService
+from ..services.cluster_sync import build_cluster_state, merge_cluster_state
 from ..settings import AppSettings
 
 
@@ -58,6 +59,17 @@ def _static_mtime(static_folder: Path, resource: str) -> int:
     except OSError:
         return int(time.time())
 
+
+
+
+def _sync_authorized(req, settings: AppSettings) -> bool:
+    if not settings.cluster_sync_enabled:
+        return False
+    expected = (settings.cluster_sync_key or "").strip()
+    if len(expected) < 32:
+        return False
+    provided = req.headers.get("X-CNACTION-SYNC-KEY") or req.args.get("key") or ""
+    return str(provided).strip() == expected
 
 def create_blueprint(stage_store: StageStore, upload_service: UploadService, settings: AppSettings) -> Blueprint:
     blueprint = Blueprint("core", __name__)
@@ -161,6 +173,22 @@ def create_blueprint(stage_store: StageStore, upload_service: UploadService, set
     @blueprint.route("/api/rooms/persistence_status")
     def api_room_persistence_status():
         return jsonify(enabled=bool(settings.room_persistence_enabled))
+
+    @blueprint.route("/api/cluster/export")
+    def api_cluster_export():
+        if not _sync_authorized(request, settings):
+            return jsonify(ok=False, msg="unauthorized"), 403
+        return jsonify(ok=True, state=build_cluster_state(stage_store))
+
+    @blueprint.route("/api/cluster/import", methods=["POST"])
+    def api_cluster_import():
+        if not _sync_authorized(request, settings):
+            return jsonify(ok=False, msg="unauthorized"), 403
+        payload = request.get_json(force=True) or {}
+        state = payload.get("state") if isinstance(payload, dict) else None
+        merged = merge_cluster_state(state if isinstance(state, dict) else {}, stage_store, settings)
+        _save_room_persistence(settings)
+        return jsonify(ok=True, merged=merged)
 
     @blueprint.route("/api/default_config")
     def api_default_config():

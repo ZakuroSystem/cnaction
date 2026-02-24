@@ -63,7 +63,7 @@ def create_app(settings: AppSettings | None = None) -> Tuple[Flask, SocketIO]:
         if snapshot.name == settings.default_room:
             game.set_default_room_config(snapshot.config)
     register_socketio_handlers(socketio, settings)
-    start_game_timer(socketio)
+    start_game_timer(socketio, settings, stage_store)
 
     return app, socketio
 
