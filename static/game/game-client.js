@@ -875,7 +875,8 @@ export class GameClient {
       this.remotePositions = new Map();
     }
     const now = performance.now();
-    const windowMs = Number(this.remoteSmoothingWindowMs) || 0;
+    const windowMs = Math.max(0, Number(this.remoteSmoothingWindowMs) || 0);
+    const windowStart = windowMs > 0 ? now - windowMs : -Infinity;
     Object.entries(positions).forEach(([pid, value]) => {
       if (!pid || pid === window.playerId) {
         return;
@@ -888,20 +889,44 @@ export class GameClient {
       const existing = this.remotePositions.get(pid) || { samples: [] };
       existing.samples = Array.isArray(existing.samples) ? existing.samples : [];
       existing.samples.push({ x, y, timestamp: now });
-      const cutoff = windowMs > 0 ? now - windowMs : -Infinity;
-      existing.samples = existing.samples.filter((sample) => sample.timestamp >= cutoff);
+      existing.samples = existing.samples
+        .filter((sample) => Number.isFinite(sample?.timestamp) && sample.timestamp >= windowStart)
+        .sort((a, b) => a.timestamp - b.timestamp);
       if (!existing.samples.length) {
         existing.samples.push({ x, y, timestamp: now });
       }
-      let sumX = 0;
-      let sumY = 0;
-      for (const sample of existing.samples) {
-        sumX += sample.x;
-        sumY += sample.y;
+      const samples = existing.samples;
+      const effectiveWindowStart = Math.max(windowStart, samples[0]?.timestamp ?? windowStart);
+      let durationSum = 0;
+      let weightedX = 0;
+      let weightedY = 0;
+      for (let i = 0; i < samples.length; i += 1) {
+        const sample = samples[i];
+        if (!sample) {
+          continue;
+        }
+        const start = Math.max(sample.timestamp, effectiveWindowStart);
+        const nextTimestamp =
+          i < samples.length - 1
+            ? Math.max(sample.timestamp, samples[i + 1].timestamp)
+            : now;
+        const end = Math.max(start, Math.min(nextTimestamp, now));
+        const duration = end - start;
+        if (duration <= 0) {
+          continue;
+        }
+        durationSum += duration;
+        weightedX += sample.x * duration;
+        weightedY += sample.y * duration;
       }
-      const count = existing.samples.length || 1;
-      existing.x = sumX / count;
-      existing.y = sumY / count;
+      if (durationSum > 0) {
+        existing.x = weightedX / durationSum;
+        existing.y = weightedY / durationSum;
+      } else {
+        const lastSample = samples[samples.length - 1];
+        existing.x = Number.isFinite(lastSample?.x) ? lastSample.x : x;
+        existing.y = Number.isFinite(lastSample?.y) ? lastSample.y : y;
+      }
       existing.timestamp = now;
       this.remotePositions.set(pid, existing);
       if (this.serverState?.players?.[pid]) {
