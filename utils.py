@@ -653,6 +653,10 @@ def get_default_config() -> dict:
         'bakeDuration': 3.0,
         'cookingRecipes': default_cooking_recipes(),
         'combinationRecipes': default_combination_recipes(),
+        'particleEffects': {
+            'successNumber': 1,
+            'failureNumber': 2,
+        },
     }
 
 # Utility functions
@@ -681,7 +685,7 @@ def parse_transfer_objects(s: str) -> list:
             pass
     return objs
 
-def update_orders(room: str, rooms: Dict[str, 'RoomState']):
+def update_orders(room: str, rooms: Dict[str, 'RoomState']) -> int:
     rs = rooms[room]
     cfg = rs.config
     runtime = getattr(rs, 'runtime', {})
@@ -692,6 +696,7 @@ def update_orders(room: str, rooms: Dict[str, 'RoomState']):
         penalty = 5
 
     updated_orders = []
+    timed_out_count = 0
     for order in rs.orders:
         if not isinstance(order, dict):
             continue
@@ -699,6 +704,7 @@ def update_orders(room: str, rooms: Dict[str, 'RoomState']):
         if remaining <= 0:
             rs.score -= penalty
             updated_orders.append(build_order(cfg, runtime))
+            timed_out_count += 1
             continue
 
         order['remaining'] = remaining
@@ -706,6 +712,7 @@ def update_orders(room: str, rooms: Dict[str, 'RoomState']):
         updated_orders.append(order)
 
     rs.orders = updated_orders
+    return timed_out_count
 
 def export_config_response(room: str, rooms: Dict[str, 'RoomState'], default_config: Optional[dict] = None):
     if room in rooms:
